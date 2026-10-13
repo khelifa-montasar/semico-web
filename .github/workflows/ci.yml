@@ -1,0 +1,50 @@
+name: CI
+
+# Verifies the three things that must hold for the monorepo to be sound: that the shared contracts,
+# server and client all typecheck against each other, that the API behaves as its tests describe,
+# and that the client actually builds.
+#
+# A fresh clone has no generated Prisma client, so `server/package.json` runs `prisma generate` as a
+# postinstall — which is why `npm ci` alone is enough before typechecking.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# A second push to the same branch makes the first run's result irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    env:
+      # The test suite points at its own throwaway SQLite file and generates its schema in
+      # `tests/globalSetup.ts`, so no database service is needed here.
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: API tests
+        run: npm test
+
+      - name: Build client and server
+        run: npm run build

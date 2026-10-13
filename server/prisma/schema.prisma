@@ -1,0 +1,437 @@
+// Semico — data model
+//
+// Targets SQLite, which constrains two things:
+//   1. No native `enum` support in Prisma's SQLite connector — every status/kind is a `String`
+//      whose allowed values live in @semico/shared (enums.ts) and are validated by zod at the
+//      edges. The comment on each field lists the permitted values.
+//   2. No `Json` scalar — structured extras (`metadata`, `params`) are JSON-encoded `String`.
+//
+// Every farm-scoped read is a time-range scan, so composite indexes lead with `farmId`.
+// Translatable content uses explicit `*En` / `*Ar` pairs rather than JSON blobs: queryable,
+// type-safe, and portable if we ever move off SQLite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────── identity & access
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  fullName     String
+  role         String // OWNER | WORKER
+  workerType   String? // OPERATOR | OBSERVER — null for owners. A capability modifier, not a role.
+  valveControl Boolean @default(false) // revocable; operators only
+  status       String  @default("ACTIVE") // ACTIVE | INVITED | DISABLED
+  phone        String?
+  avatarUrl    String?
+  bio          String? // max 500, enforced by zod
+  wilayaId     String?
+  wilaya       Wilaya? @relation(fields: [wilayaId], references: [code])
+  commune      String?
+
+  // A worker belongs to one farm. An owner's farm points back via Farm.ownerId.
+  farmId String?
+  farm   Farm?   @relation("FarmWorkers", fields: [farmId], references: [id])
+
+  ownedFarm Farm? @relation("FarmOwner")
+
+  experiences   Experience[]
+  educations    Education[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  commands      IrrigationCommand[]
+  bookings      Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([farmId])
+  @@index([role, status])
+}
+
+model Farm {
+  id         String  @id @default(cuid())
+  name       String
+  ownerCode  String  @unique // "XXXX-XXXX" — what workers type to join. Owner-visible only.
+  wilayaId   String?
+  wilaya     Wilaya? @relation(fields: [wilayaId], references: [code])
+  commune    String?
+  landAreaHa Float?
+
+  ownerId String @unique
+  owner   User   @relation("FarmOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  workers User[] @relation("FarmWorkers")
+
+  settings     FarmSettings?
+  zones        Zone[]
+  telemetry    Telemetry[]
+  deviceStatus DeviceStatus?
+  components   SystemComponent[]
+  errorLogs    ErrorLog[]
+  activity     ActivityLog[]
+  commands     IrrigationCommand[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FarmSettings {
+  id                String  @id @default(cuid())
+  farmId            String  @unique
+  farm              Farm    @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  moistureThreshold Int     @default(40) // 10..80, matches the Settings slider
+  autoIrrigation    Boolean @default(true)
+  pushNotifications Boolean @default(true)
+  timezone          String  @default("Africa/Algiers")
+  updatedAt         DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique // only the hash is stored; the raw token lives in the cookie
+  // Rotation + reuse detection: every token belongs to a family. Presenting a revoked token
+  // means it leaked, so the whole family is revoked.
+  familyId  String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model Experience {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobTitle    String
+  company     String
+  startDate   String // freeform ("Jan 2019") — matches what the Settings form collects
+  endDate     String?
+  isPresent   Boolean @default(false)
+  description String?
+  sortOrder   Int     @default(0)
+
+  @@index([userId])
+}
+
+model Education {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  degree      String
+  institution String
+  year        String?
+  sortOrder   Int     @default(0)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────── farm operations
+
+model Zone {
+  id         String @id @default(cuid())
+  farmId     String
+  farm       Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  name       String // "Zone 1"
+  valveState String @default("CLOSED") // OPEN | CLOSED
+  sortOrder  Int    @default(0)
+
+  telemetry Telemetry[]
+  commands  IrrigationCommand[]
+  activity  ActivityLog[]
+
+  @@index([farmId])
+}
+
+model Telemetry {
+  id              String   @id @default(cuid())
+  farmId          String
+  farm            Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zoneId          String?
+  zone            Zone?    @relation(fields: [zoneId], references: [id])
+  recordedAt      DateTime
+  rootMoisture    Float?
+  surfaceMoisture Float?
+  soilTempC       Float?
+  batteryPct      Int?
+  flowRateLpm     Float?
+  loraRssi        Int?
+  valveState      String? // OPEN | CLOSED
+
+  @@index([farmId, recordedAt])
+  @@index([zoneId, recordedAt])
+}
+
+/// Farm-level radio/power/connectivity summary — one row per farm.
+model DeviceStatus {
+  id               String   @id @default(cuid())
+  farmId           String   @unique
+  farm             Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  firmwareVersion  String?
+  controllerOnline Boolean  @default(true)
+  loraRssi         Int?
+  cellularStatus   String? // CONNECTED | OFFLINE
+  cellularOperator String? // "Mobilis"
+  cellularSignal   Int? // 0..5 bars
+  batteryPct       Int?
+  updatedAt        DateTime @updatedAt
+}
+
+model SystemComponent {
+  id        String   @id @default(cuid())
+  farmId    String
+  farm      Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  key       String // stable id: CONTROLLER, MOISTURE_SENSOR_A, LORA_GATEWAY, BATTERY, …
+  nameEn    String
+  nameAr    String
+  value     String // human-formatted: "72%", "-68 dBm", "Online"
+  status    String // GREEN | ORANGE | RED
+  detailEn  String?
+  detailAr  String?
+  sortOrder Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([farmId, key])
+  @@index([farmId])
+}
+
+model ErrorLog {
+  id         String   @id @default(cuid())
+  farmId     String
+  farm       Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  occurredAt DateTime
+  component  String // component key
+  messageEn  String
+  messageAr  String
+  actionEn   String?
+  actionAr   String?
+
+  @@index([farmId, occurredAt])
+}
+
+/// The farmer-facing feed. Bilingual, farm-scoped, rendered on the Activity page.
+model ActivityLog {
+  id         String   @id @default(cuid())
+  farmId     String
+  farm       Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  occurredAt DateTime
+  kind       String // VALVE_OPEN | VALVE_CLOSE | SCHEDULED_IRRIGATION | THRESHOLD_REACHED |
+  //                   MANUAL_OVERRIDE | SYSTEM_CHECK | PERMISSION_GRANT | PERMISSION_REVOKE |
+  //                   WORKER_INVITED | WORKER_REMOVED
+  type       String // AUTO | MANUAL
+  zoneId     String?
+  zone       Zone?    @relation(fields: [zoneId], references: [id])
+  actorId    String?
+  messageEn  String
+  messageAr  String
+  params     String? // JSON-encoded (SQLite has no Json scalar)
+  lat        Float? // manual overrides carry a geotag
+  lng        Float?
+
+  @@index([farmId, occurredAt])
+  @@index([farmId, type])
+}
+
+/// The security audit. Owner-only, includes actor + request provenance.
+/// Written in the same transaction as the state change it describes.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  farmId     String?
+  action     String // PERMISSION_GRANT | PERMISSION_REVOKE | VALVE_OPEN | VALVE_CLOSE | LOGIN | …
+  entityType String // USER | ZONE | FARM | SESSION
+  entityId   String
+  metadata   String? // JSON-encoded
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([farmId, createdAt])
+}
+
+model IrrigationCommand {
+  id          String    @id @default(cuid())
+  farmId      String
+  farm        Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zoneId      String
+  zone        Zone      @relation(fields: [zoneId], references: [id])
+  issuedById  String
+  issuedBy    User      @relation(fields: [issuedById], references: [id])
+  action      String // OPEN | CLOSE
+  durationMin Int? // 1..120; null when closing
+  status      String    @default("PENDING") // PENDING | EXECUTED | FAILED | CANCELLED
+  requestedAt DateTime  @default(now())
+  executedAt  DateTime?
+
+  @@index([farmId, requestedAt])
+}
+
+// ─────────────────────────────────────────────────────────────── bookings
+
+model Booking {
+  id          String  @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  /// UTC midnight of the farm-local day being booked.
+  day         DateTime
+  startTime   String // "9:30 am"
+  /// `${day}|${startTime}` while the booking is ACTIVE, and NULL once cancelled.
+  ///
+  /// This exists instead of a plain `@@unique([day, startTime])` because cancelling has to free the
+  /// slot again. A unique index over the raw columns keeps a cancelled row occupying the slot
+  /// forever, so nobody can rebook it. SQLite allows many NULLs in a unique index, so nulling this
+  /// on cancellation gives exactly the intended rule: at most one live booking per slot.
+  slotKey     String? @unique
+  timezone    String  @default("Africa/Algiers")
+  meetingType String  @default("Google Meet")
+  durationMin Int     @default(30)
+  status      String  @default("PENDING") // PENDING | CONFIRMED | CANCELLED
+  notes       String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([day])
+}
+
+/// An explicitly blocked slot (seeded with the two the design marks unavailable, plus lunch).
+model BookingBlock {
+  id        String   @id @default(cuid())
+  day       DateTime
+  startTime String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([day, startTime])
+}
+
+// ─────────────────────────────────────────────────────────────── public content
+
+model BlogPost {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  publishedAt  DateTime
+  category     String // TECHNOLOGY | GUIDES
+  titleEn      String
+  titleAr      String
+  excerptEn    String
+  excerptAr    String
+  bodyEn       String?
+  bodyAr       String?
+  coverImageUrl String?
+  published    Boolean  @default(true)
+  sortOrder    Int      @default(0)
+
+  @@index([published, publishedAt])
+}
+
+model Product {
+  id        String  @id @default(cuid())
+  iconKey   String // lucide icon name, resolved client-side
+  titleEn   String
+  titleAr   String
+  descEn    String
+  descAr    String
+  imageUrl  String?
+  sortOrder Int     @default(0)
+}
+
+model ServicePlan {
+  id         String  @id @default(cuid())
+  titleEn    String
+  titleAr    String
+  /// null => quote-only ("Custom"); the UI shows a consultation CTA instead of a price.
+  priceValue Int?
+  unitEn     String?
+  unitAr     String?
+  badgeEn    String?
+  badgeAr    String?
+  descEn     String
+  descAr     String
+  sortOrder  Int     @default(0)
+}
+
+model TeamMember {
+  id          String  @id @default(cuid())
+  initials    String
+  name        String
+  roleEn      String
+  roleAr      String
+  bioEn       String
+  bioAr       String
+  linkedinUrl String?
+  sortOrder   Int     @default(0)
+}
+
+model Stat {
+  id      String  @id @default(cuid())
+  valueEn String
+  valueAr String
+  labelEn String
+  labelAr String
+  sortOrder Int   @default(0)
+}
+
+model Testimonial {
+  id         String  @id @default(cuid())
+  quoteEn    String
+  quoteAr    String
+  authorName String
+  farmEn     String
+  farmAr     String
+  sortOrder  Int     @default(0)
+}
+
+/// Reference data: the 58 Algerian wilayas, used by the Settings dropdown and farm address.
+model Wilaya {
+  code    String  @id // "16"
+  nameEn  String
+  nameAr  String
+  covered Boolean @default(true)
+
+  users User[]
+  farms Farm[]
+}
+
+/// A sales enquiry from the public site's lead-capture form.
+///
+/// Deliberately NOT farm-scoped: these are company-level enquiries from anonymous visitors, not
+/// records belonging to any one farm.
+///
+/// This model exists because the marketing form used to collect a name, email, phone and land area,
+/// advance to a thank-you step reading "We'll be in touch within 24 hours", and send nothing
+/// anywhere — the visitor was promised a callback that could never come.
+model Lead {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  /// Free text, exactly as the form collects it — the visitor decides between m² and ha.
+  landArea  String?
+  /// The visitor's locale at submission, so follow-up can be in the language they were reading.
+  locale    String?
+  status    String   @default("NEW") // NEW | CONTACTED | CLOSED
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
