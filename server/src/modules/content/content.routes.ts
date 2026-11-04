@@ -14,6 +14,7 @@ contentRoutes.get("/blog", contentController.blogPosts);
 contentRoutes.get("/blog/:slug", contentController.blogPost);
 contentRoutes.get("/products", contentController.products);
 contentRoutes.get("/service-plans", contentController.servicePlans);
+contentRoutes.get("/pricing-plans", contentController.pricingPlans);
 contentRoutes.get("/team", contentController.team);
 contentRoutes.get("/stats", contentController.stats);
 contentRoutes.get("/testimonials", contentController.testimonials);

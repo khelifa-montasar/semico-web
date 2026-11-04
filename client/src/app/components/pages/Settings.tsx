@@ -12,7 +12,7 @@ import { useDebounced } from "../../hooks/useDebounced";
 import { useLocalized } from "../../hooks/useLocalized";
 import { useAuth } from "@/features/auth/AuthContext";
 import { useWilayas } from "../../../features/content/useContent";
-import { useIrrigate } from "../../../features/dashboard/useDashboard";
+import { useIrrigate, useZones } from "../../../features/dashboard/useDashboard";
 import {
   useAddEducation,
   useAddExperience,
@@ -31,8 +31,29 @@ import {
   useResetWorkerPassword,
   useSetValve,
   useSetValveControl,
+  useUpdateWorker,
   useWorkers,
 } from "../../../features/workers/useWorkers";
+import {
+  useCreateFarm,
+  useCreateZone,
+  useFarms,
+  useFarm,
+  useSwitchFarm,
+  useUpdateFarm,
+  useUpdateFarmBoundary,
+  useUpdateZone,
+} from "../../../features/farms/useFarms";
+import { FarmBoundaryEditor } from "../../../features/map/FarmBoundaryEditor";
+import { getActiveFarmId } from "../../../lib/api/http";
+import {
+  DEFAULT_SENSORS_PER_ZONE,
+  DEFAULT_ZONE_COUNT,
+  MAX_FARMS_PER_OWNER,
+  MAX_SENSORS_PER_ZONE,
+  MAX_ZONE_COUNT,
+  type Zone,
+} from "@semico/shared";
 import { useLeads, useUpdateLead } from "../../../features/leads/useLeads";
 import { farmDateLabel } from "../../../lib/time";
 
@@ -55,7 +76,7 @@ interface EducationEntry {
   year: string;
 }
 
-type WorkerType = "operator" | "observer";
+type WorkerType = "operator" | "engineer";
 type WorkerStatus = "active" | "invited";
 
 interface WorkerEntry {
@@ -127,15 +148,38 @@ function MinTextarea({
   );
 }
 
-function PillToggle({ value, onChange }: { value: boolean; onChange: () => void }) {
+function PillToggle({
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  value: boolean;
+  onChange: () => void;
+  /** What this switch controls. Required, so a toggle cannot be added without a name. */
+  label: string;
+  disabled?: boolean;
+}) {
+  // A switch, not a plain button: `role` together with `aria-checked` is what lets a screen reader
+  // announce "on" or "off". Without them this is an unnamed button whose state cannot be determined
+  // — which is how it shipped, including on the switch that grants a worker valve access.
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={value}
+      aria-label={label}
       onClick={onChange}
-      className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+      disabled={disabled}
+      className={`w-10 h-5 rounded-full transition-colors relative shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
         value ? "bg-[#00A859] dark:bg-[#3FB950]" : "bg-[#D1D5DB] dark:bg-[#30363D]"
       }`}
     >
-      <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${value ? "translate-x-5" : "translate-x-0.5"}`} />
+      {/* Decorative: the state is carried by aria-checked, so announcing this would only add noise. */}
+      <span
+        aria-hidden="true"
+        className={`block w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${value ? "translate-x-5" : "translate-x-0.5"}`}
+      />
     </button>
   );
 }
@@ -156,6 +200,7 @@ export function Settings() {
   const wt = s.workers;
   const ap = s.appearance;
   const sl = s.leads;
+  const f = s.farms;
 
   // Shared tokens plus the three surfaces only this page uses, kept under their original names so
   // the markup below is untouched.
@@ -168,7 +213,7 @@ export function Settings() {
   };
 
   // The server enforces ownership on every worker endpoint. This used to be hardcoded `true`, so
-  // the UI offered worker management to everyone — including observers, who would then be refused.
+  // the UI offered worker management to everyone — including engineers, who would then be refused.
   const { user } = useAuth();
   const isAdmin = user?.role === "OWNER";
 
@@ -178,7 +223,7 @@ export function Settings() {
   const profile = useProfile();
   const wilayas = useWilayas();
   const L = useLocalized();
-  const farmSettings = useFarmSettings();
+  const farmSettings = useFarmSettings(getActiveFarmId() ?? undefined);
   const workersQuery = useWorkers();
 
   const updateProfile = useUpdateProfile();
@@ -190,7 +235,7 @@ export function Settings() {
   const deleteEducationMutation = useDeleteEducation();
   // Destructured so the effect below can depend on the (stable) `mutate` function rather than the
   // mutation object, whose identity is new on every render — which would re-run the effect forever.
-  const { mutate: saveThreshold } = useUpdateFarmSettings();
+  const { mutate: saveFarmSettings, isPending: settingsUpdatePending } = useUpdateFarmSettings();
   const inviteWorker = useInviteWorker();
   const setValveControl = useSetValveControl();
   const removeWorkerMutation = useRemoveWorker();
@@ -202,8 +247,204 @@ export function Settings() {
   // duration the user typed.
   const irrigate = useIrrigate();
 
+  // ── Multi-farm (V2) ────────────────────────────────────────────────────────
+  const farms = useFarms();
+  const activeFarm = useFarm();
+  const createFarmMutation = useCreateFarm();
+  const switchFarm = useSwitchFarm();
+  const updateFarmMutation = useUpdateFarm();
+  const updateBoundaryMutation = useUpdateFarmBoundary();
+  const createZoneMutation = useCreateZone();
+  const updateZoneMutation = useUpdateZone();
+  const zonesQuery = useZones();
+  const updateWorkerMutation = useUpdateWorker();
+
+  // The farm the API currently acts on. `getActiveFarmId()` is the persisted choice; the fallback
+  // mirrors the server's own default (the owner's oldest farm).
+  const [chosenFarmId, setChosenFarmId] = useState<string | null>(() => getActiveFarmId());
+  const [newFarmName, setNewFarmName] = useState("");
+  const [boundaryFarmId, setBoundaryFarmId] = useState<string | null>(null);
+  const [farmDraft, setFarmDraft] = useState({
+    name: "",
+    wilayaId: "",
+    commune: "",
+    landAreaHa: "",
+    latitude: "",
+    longitude: "",
+  });
+  const [timezone, setTimezone] = useState("Africa/Algiers");
+  const [newZoneName, setNewZoneName] = useState("");
+  const [editingZone, setEditingZone] = useState<{ id: string; name: string; sortOrder: number } | null>(null);
+  const [editingWorker, setEditingWorker] = useState<{
+    id: string;
+    name: string;
+    type: WorkerType;
+  } | null>(null);
+
+  const activeFarmId = chosenFarmId ?? farms.data?.[0]?.id ?? null;
+  const farmLimitReached = (farms.data?.length ?? 0) >= MAX_FARMS_PER_OWNER;
+
+  function chooseFarm(farmId: string) {
+    setChosenFarmId(farmId);
+    switchFarm(farmId);
+  }
+
   function reportError(error: unknown, fallback: string) {
     toast.error(error instanceof Error ? error.message : fallback);
+  }
+
+  // ── Multi-farm handlers ───────────────────────────────────────────────────
+  function handleCreateFarm() {
+    const name = newFarmName.trim();
+    if (name.length < 2) return;
+
+    createFarmMutation.mutate(
+      { name },
+      {
+        onSuccess: () => {
+          setNewFarmName("");
+          toast.success(f.created);
+        },
+        onError: (error) => reportError(error, "Could not create the farm."),
+      },
+    );
+  }
+
+  function handleSaveFarmProfile() {
+    const hasLatitude = farmDraft.latitude.trim() !== "";
+    const hasLongitude = farmDraft.longitude.trim() !== "";
+    if (hasLatitude !== hasLongitude) {
+      toast.error(f.coordinatePair);
+      return;
+    }
+
+    const latitude = hasLatitude ? Number(farmDraft.latitude) : null;
+    const longitude = hasLongitude ? Number(farmDraft.longitude) : null;
+    const landAreaHa = farmDraft.landAreaHa.trim() ? Number(farmDraft.landAreaHa) : null;
+    if (
+      (hasLatitude && (!Number.isFinite(latitude) || !Number.isFinite(longitude))) ||
+      (landAreaHa !== null && !Number.isFinite(landAreaHa))
+    ) {
+      toast.error(f.invalidNumber);
+      return;
+    }
+
+    updateFarmMutation.mutate(
+      {
+        name: farmDraft.name.trim(),
+        wilayaId: farmDraft.wilayaId,
+        commune: farmDraft.commune.trim(),
+        landAreaHa,
+        latitude,
+        longitude,
+      },
+      {
+        onSuccess: () => toast.success(f.profileSaved),
+        onError: (error) => reportError(error, "Could not save farm details."),
+      },
+    );
+  }
+
+  function handleAddZone() {
+    const name = newZoneName.trim();
+    if (!name) return;
+    const sortOrder = Math.max(-1, ...(zonesQuery.data ?? []).map((zone) => zone.sortOrder)) + 1;
+    createZoneMutation.mutate(
+      { name, sortOrder },
+      {
+        onSuccess: () => {
+          setNewZoneName("");
+          toast.success(f.zoneSaved);
+        },
+        onError: (error) => reportError(error, "Could not add the zone."),
+      },
+    );
+  }
+
+  function handleSaveZone() {
+    if (!editingZone) return;
+    updateZoneMutation.mutate(
+      { id: editingZone.id, input: { name: editingZone.name.trim(), sortOrder: editingZone.sortOrder } },
+      {
+        onSuccess: () => {
+          setEditingZone(null);
+          toast.success(f.zoneSaved);
+        },
+        onError: (error) => reportError(error, "Could not save the zone."),
+      },
+    );
+  }
+
+  function toggleFarmPreference(key: "autoIrrigation" | "pushNotifications", next: boolean) {
+    const previous = key === "autoIrrigation" ? autoIrrigation : notifications;
+    if (key === "autoIrrigation") setAutoIrrigation(next);
+    else setNotifications(next);
+    saveFarmSettings(
+      { [key]: next },
+      {
+        onError: (error) => {
+          if (key === "autoIrrigation") setAutoIrrigation(previous);
+          else setNotifications(previous);
+          reportError(error, "Could not save farm preference.");
+        },
+      },
+    );
+  }
+
+  function handleSaveTimezone() {
+    saveFarmSettings(
+      { timezone },
+      { onError: (error) => reportError(error, "Could not save timezone.") },
+    );
+  }
+
+  function handleSaveLayout() {
+    if (
+      !Number.isInteger(zoneCount) || zoneCount < 1 || zoneCount > MAX_ZONE_COUNT ||
+      !Number.isInteger(sensorsPerZone) || sensorsPerZone < 1 || sensorsPerZone > MAX_SENSORS_PER_ZONE
+    ) {
+      toast.error(f.invalidNumber);
+      return;
+    }
+
+    saveFarmSettings(
+      { zoneCount, sensorsPerZone },
+      { onError: (error) => reportError(error, "Could not save farm layout.") },
+    );
+  }
+
+  /** Opens the shape editor, switching farms first so the saved outline belongs to the right one. */
+  function openBoundary(farmId: string) {
+    if (farmId !== activeFarmId) chooseFarm(farmId);
+    setBoundaryFarmId(farmId);
+  }
+
+  function handleSaveBoundary(points: Array<[number, number]>) {
+    updateBoundaryMutation.mutate(points, {
+      onSuccess: () => {
+        setBoundaryFarmId(null);
+        toast.success(f.shapeSaved);
+      },
+      onError: (error) => reportError(error, "Could not save the shape."),
+    });
+  }
+
+  function handleSaveWorker() {
+    if (!editingWorker) return;
+
+    updateWorkerMutation.mutate(
+      {
+        id: editingWorker.id,
+        input: { type: editingWorker.type.toUpperCase() as "OPERATOR" | "ENGINEER" },
+      },
+      {
+        onSuccess: () => {
+          setEditingWorker(null);
+          toast.success(f.workerSaved);
+        },
+        onError: (error) => reportError(error, "Could not update the worker."),
+      },
+    );
   }
 
   // ── Profile form state
@@ -273,7 +514,7 @@ export function Settings() {
     initials: worker.initials,
     name: worker.name,
     email: worker.email,
-    type: worker.type === "OPERATOR" ? "operator" : "observer",
+    type: worker.type === "OPERATOR" ? "operator" : "engineer",
     valveControl: worker.valveControl,
     status: worker.status === "ACTIVE" ? "active" : "invited",
   }));
@@ -282,7 +523,22 @@ export function Settings() {
   const [moistureThreshold, setMoistureThreshold] = useState(40);
   const [autoIrrigation, setAutoIrrigation] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [zoneCount, setZoneCount] = useState(DEFAULT_ZONE_COUNT);
+  const [sensorsPerZone, setSensorsPerZone] = useState(DEFAULT_SENSORS_PER_ZONE);
   const [overrideMin, setOverrideMin] = useState(15);
+
+  useEffect(() => {
+    const farm = activeFarm.data;
+    if (!farm) return;
+    setFarmDraft({
+      name: farm.name,
+      wilayaId: farm.wilayaId ?? "",
+      commune: farm.commune ?? "",
+      landAreaHa: farm.landAreaHa == null ? "" : String(farm.landAreaHa),
+      latitude: farm.latitude == null ? "" : String(farm.latitude),
+      longitude: farm.longitude == null ? "" : String(farm.longitude),
+    });
+  }, [activeFarm.data]);
 
   useEffect(() => {
     const loaded = farmSettings.data;
@@ -290,6 +546,9 @@ export function Settings() {
     setMoistureThreshold(loaded.moistureThreshold);
     setAutoIrrigation(loaded.autoIrrigation);
     setNotifications(loaded.pushNotifications);
+    setTimezone(loaded.timezone);
+    setZoneCount(loaded.zoneCount);
+    setSensorsPerZone(loaded.sensorsPerZone);
   }, [farmSettings.data]);
 
   // The slider fires on every step, so only the settled value is persisted — and only when it
@@ -300,8 +559,8 @@ export function Settings() {
 
   useEffect(() => {
     if (savedThreshold === undefined || settledThreshold === savedThreshold) return;
-    saveThreshold({ moistureThreshold: settledThreshold });
-  }, [settledThreshold, savedThreshold, saveThreshold]);
+    saveFarmSettings({ moistureThreshold: settledThreshold });
+  }, [settledThreshold, savedThreshold, saveFarmSettings]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
@@ -441,7 +700,7 @@ export function Settings() {
     setValveControl.mutate(
       { id: workerId, granted: !worker.valveControl },
       {
-        // The server refuses this for an observer, and for an operator only while they hold the
+        // The server refuses this for an engineer, and for an operator only while they hold the
         // OPERATOR type — so surface its reason rather than leaving the toggle looking stuck.
         onError: (error) => reportError(error, "Could not change valve control."),
       },
@@ -473,7 +732,7 @@ export function Settings() {
       {
         name: inviteForm.name.trim(),
         email: inviteForm.email.trim(),
-        type: inviteForm.type === "operator" ? "OPERATOR" : "OBSERVER",
+        type: inviteForm.type === "operator" ? "OPERATOR" : "ENGINEER",
         grantValve: inviteForm.type === "operator" && inviteForm.grantValve,
       },
       {
@@ -585,7 +844,13 @@ export function Settings() {
         <div className="flex flex-col sm:flex-row gap-8 mb-10">
           {/* Avatar */}
           <div className="shrink-0 flex flex-col items-center gap-3">
-            <div
+            {/* A real button rather than a div with onClick: this opens a file picker, so it is
+                keyboard-operable by definition. A div would leave it reachable only by mouse, and
+                the visible "change photo" text sits in a hover overlay that is present but opaque —
+                an aria-label gives it a name that does not depend on hover. */}
+            <button
+              type="button"
+              aria-label={p.changePhoto}
               className="relative w-24 h-24 rounded-full cursor-pointer overflow-hidden"
               style={{ border: `1px solid ${c.border}` }}
               onMouseEnter={() => setAvatarHover(true)}
@@ -595,11 +860,11 @@ export function Settings() {
               {avatarUrl ? (
                 <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center" style={{ background: c.avatarBg }}>
+                <span className="w-full h-full flex items-center justify-center" style={{ background: c.avatarBg }}>
                   <User size={36} strokeWidth={1.5} style={{ color: c.sec }} />
-                </div>
+                </span>
               )}
-              <div
+              <span
                 className="absolute inset-0 flex flex-col items-center justify-center gap-1 transition-opacity"
                 style={{
                   background: "rgba(0,0,0,0.3)",
@@ -610,8 +875,8 @@ export function Settings() {
                 <span className="text-white text-[10px] text-center px-1 leading-tight" style={{ fontFamily: font }}>
                   {p.changePhoto}
                 </span>
-              </div>
-            </div>
+              </span>
+            </button>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} />
           </div>
 
@@ -929,6 +1194,7 @@ export function Settings() {
           <div className="flex items-center gap-3">
             <input
               type="range" min={10} max={80} value={moistureThreshold}
+              disabled={!isAdmin || farmSettings.isFetching}
               onChange={(e) => setMoistureThreshold(Number(e.target.value))}
               className="flex-1" style={{ accentColor: c.green }} dir="ltr"
             />
@@ -936,6 +1202,50 @@ export function Settings() {
               {moistureThreshold}%
             </span>
           </div>
+        </div>
+        <div className="mt-6 rounded-lg p-4" style={{ border: `1px solid ${c.border}` }}>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-[12px] mb-2 block" style={{ fontFamily: font, color: c.sec }}>{f.zoneCount}</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_ZONE_COUNT}
+                step={1}
+                value={zoneCount}
+                disabled={!isAdmin || farmSettings.isFetching || settingsUpdatePending}
+                onChange={(event) => setZoneCount(Number(event.target.value))}
+                className="w-full h-10 rounded-lg px-3 text-[13px] outline-none bg-transparent"
+                style={{ border: `1px solid ${c.border}`, color: c.text, fontFamily: "JetBrains Mono" }}
+                dir="ltr"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[12px] mb-2 block" style={{ fontFamily: font, color: c.sec }}>{f.sensorsPerZone}</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_SENSORS_PER_ZONE}
+                step={1}
+                value={sensorsPerZone}
+                disabled={!isAdmin || farmSettings.isFetching || settingsUpdatePending}
+                onChange={(event) => setSensorsPerZone(Number(event.target.value))}
+                className="w-full h-10 rounded-lg px-3 text-[13px] outline-none bg-transparent"
+                style={{ border: `1px solid ${c.border}`, color: c.text, fontFamily: "JetBrains Mono" }}
+                dir="ltr"
+              />
+            </label>
+          </div>
+          <p className="text-[11px] mt-3" style={{ color: c.sec }}>{f.layoutHint}</p>
+          <button
+            type="button"
+            onClick={handleSaveLayout}
+            disabled={!isAdmin || farmSettings.isFetching || settingsUpdatePending}
+            className="mt-3 px-4 py-2.5 rounded-full text-[12px] text-white disabled:opacity-40"
+            style={{ background: c.green, fontFamily: font }}
+          >
+            {f.saveLayout}
+          </button>
         </div>
       </section>
 
@@ -949,14 +1259,38 @@ export function Settings() {
           {s.preferences}
         </h3>
         {[
-          { label: s.autoIrrigation, value: autoIrrigation, toggle: () => setAutoIrrigation((v) => !v) },
-          { label: s.pushNotifications, value: notifications, toggle: () => setNotifications((v) => !v) },
+          { label: s.autoIrrigation, value: autoIrrigation, toggle: () => toggleFarmPreference("autoIrrigation", !autoIrrigation) },
+          { label: s.pushNotifications, value: notifications, toggle: () => toggleFarmPreference("pushNotifications", !notifications) },
         ].map((item) => (
           <div key={item.label} className="flex items-center justify-between">
             <span className="text-[13px]" style={{ fontFamily: font, color: c.text }}>{item.label}</span>
-            <PillToggle value={item.value} onChange={item.toggle} />
+            <PillToggle value={item.value} onChange={item.toggle} label={item.label} disabled={!isAdmin || farmSettings.isFetching} />
           </div>
         ))}
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex-1 min-w-[220px]">
+            <span className="text-[12px] mb-2 block" style={{ color: c.sec }}>{f.timezone}</span>
+            <input
+              type="text"
+              value={timezone}
+              disabled={!isAdmin || farmSettings.isFetching}
+              onChange={(event) => setTimezone(event.target.value)}
+              placeholder="Africa/Algiers"
+              className="w-full h-10 rounded-lg px-3 text-[13px] outline-none bg-transparent"
+              style={{ border: `1px solid ${c.border}`, color: c.text, fontFamily: "JetBrains Mono" }}
+              dir="ltr"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleSaveTimezone}
+            disabled={!isAdmin || farmSettings.isFetching || !timezone.trim()}
+            className="px-4 py-2.5 rounded-full text-[12px] text-white disabled:opacity-40"
+            style={{ background: c.green, fontFamily: font }}
+          >
+            {f.saveChanges}
+          </button>
+        </div>
       </section>
 
       <Divider />
@@ -1035,13 +1369,13 @@ export function Settings() {
               {[
                 {
                   icon: Shield, label: wt.operator,
-                  desc: isRTL ? "يمكنه فتح/إغلاق الصمامات" : "Can operate valves",
+                  desc: isRTL ? "يمكنه تشغيل الصمامات؛ بلا تصدير أو تشخيص" : "Can operate valves; no exports or diagnostics",
                   color: isDark ? "#58A6FF" : "#0077B6",
                   bg: isDark ? "rgba(88,166,255,0.10)" : "#EFF6FF",
                 },
                 {
-                  icon: Eye, label: wt.observer,
-                  desc: isRTL ? "وصول للقراءة فقط" : "Read-only access",
+                  icon: Eye, label: wt.engineer,
+                  desc: isRTL ? "يمكنه تصدير البيانات وعرض التشخيص؛ الصمامات للقراءة فقط" : "Can export data and view diagnostics; valves stay read-only",
                   color: isDark ? "#8B949E" : "#6B7280",
                   bg: isDark ? "#21262D" : "#F3F4F6",
                 },
@@ -1115,14 +1449,19 @@ export function Settings() {
                                 : { background: isDark ? "#21262D" : "#F3F4F6", color: isDark ? "#8B949E" : "#6B7280" }),
                             }}
                           >
-                            {worker.type === "operator" ? wt.operator : wt.observer}
+                            {worker.type === "operator" ? wt.operator : wt.engineer}
                           </span>
                         </td>
 
-                        {/* Valve control */}
+                        {/* Valve control. The toggle is named for the row it sits in — the column
+                            header alone would announce identically for every worker in the table. */}
                         <td className="px-4 py-3">
                           {worker.type === "operator" ? (
-                            <PillToggle value={worker.valveControl} onChange={() => toggleValveControl(worker.id)} />
+                            <PillToggle
+                              value={worker.valveControl}
+                              onChange={() => toggleValveControl(worker.id)}
+                              label={`${wt.valveCol} — ${worker.name}`}
+                            />
                           ) : (
                             <span className="text-[13px]" style={{ fontFamily: "JetBrains Mono", color: c.sec }}>—</span>
                           )}
@@ -1145,6 +1484,9 @@ export function Settings() {
                         {/* Actions menu */}
                         <td className="px-4 py-3 relative">
                           <button
+                            type="button"
+                            aria-label={`${t.common.openMenu} — ${worker.name}`}
+                            aria-expanded={openMenuId === worker.id}
                             onClick={() => setOpenMenuId(openMenuId === worker.id ? null : worker.id)}
                             className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
                             style={{ color: c.sec }}
@@ -1158,7 +1500,10 @@ export function Settings() {
                               style={{ minWidth: 172, background: c.card, border: `1px solid ${c.border}` }}
                             >
                               {[
-                                { label: wt.editBtn, danger: false, action: () => setOpenMenuId(null) },
+                                { label: wt.editBtn, danger: false, action: () => {
+                                  setOpenMenuId(null);
+                                  setEditingWorker({ id: worker.id, name: worker.name, type: worker.type });
+                                } },
                                 { label: wt.resetPwd, danger: false, action: () => resetWorkerPwd(worker.id) },
                                 { label: wt.removeBtn, danger: true, action: () => removeWorker(worker.id) },
                               ].map((item) => (
@@ -1181,6 +1526,218 @@ export function Settings() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </section>
+
+          <Divider />
+
+          {/* ════════════════════════════════════════
+              FARMS (owner only, V2)
+          ════════════════════════════════════════ */}
+          <section className="py-6">
+            <div className="flex items-baseline justify-between gap-3 mb-2">
+              <h2 className="text-[20px]" style={{ fontWeight: 500, fontFamily: font, color: c.text }}>
+                {f.sectionTitle}
+              </h2>
+              <span className="text-[12px]" style={{ fontFamily: "JetBrains Mono", color: c.sec }}>
+                {farms.data?.length ?? 0} / {MAX_FARMS_PER_OWNER}
+              </span>
+            </div>
+            <p className="text-[12px] mb-5 max-w-[560px]" style={{ fontFamily: font, color: c.sec, lineHeight: 1.6 }}>
+              {f.hint}
+            </p>
+
+            <div className="flex flex-col gap-3">
+              {(farms.data ?? []).map((farm) => {
+                const isActive = farm.id === activeFarmId;
+
+                return (
+                  <div
+                    key={farm.id}
+                    className="rounded-lg p-4 flex flex-wrap items-center gap-3"
+                    style={{
+                      border: `1px solid ${isActive ? c.green : c.border}`,
+                      background: c.card,
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px]" style={{ fontFamily: font, fontWeight: 500, color: c.text }}>
+                        {farm.name}
+                      </p>
+                      <p className="text-[11px]" style={{ fontFamily: "JetBrains Mono", color: c.sec }}>
+                        {farm.commune ? `${farm.commune} · ` : ""}
+                        {farmDateLabel(new Date(farm.createdAt), lang)}
+                      </p>
+                    </div>
+
+                    {isActive ? (
+                      <span
+                        className="px-2.5 py-1 rounded-full text-[11px]"
+                        style={{ border: `1px solid ${c.green}`, color: c.green }}
+                      >
+                        {f.active}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => chooseFarm(farm.id)}
+                        className="px-3 py-1.5 rounded-full text-[12px]"
+                        style={{ border: `1px solid ${c.border}`, fontFamily: font, color: c.text }}
+                      >
+                        {f.makeActive}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => openBoundary(farm.id)}
+                      className="px-3 py-1.5 rounded-full text-[12px]"
+                      style={{ border: `1px solid ${c.border}`, fontFamily: font, color: c.text }}
+                    >
+                      {f.editShape}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {activeFarm.data && (
+              <div className="rounded-lg p-4 mt-5" style={{ border: `1px solid ${c.border}`, background: c.card }}>
+                <h3 className="text-[14px] mb-3" style={{ color: c.text, fontWeight: 500 }}>{f.profileTitle}</h3>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {[
+                    { key: "name", label: f.farmName, value: farmDraft.name },
+                    { key: "wilayaId", label: f.wilaya, value: farmDraft.wilayaId },
+                    { key: "commune", label: f.commune, value: farmDraft.commune },
+                    { key: "landAreaHa", label: f.landArea, value: farmDraft.landAreaHa },
+                    { key: "latitude", label: f.latitude, value: farmDraft.latitude },
+                    { key: "longitude", label: f.longitude, value: farmDraft.longitude },
+                  ].map((field) => (
+                    <label key={field.key} className="min-w-0">
+                      <span className="text-[11px] mb-1.5 block" style={{ color: c.sec }}>{field.label}</span>
+                      <input
+                        type="text"
+                        inputMode={field.key === "landAreaHa" || field.key === "latitude" || field.key === "longitude" ? "decimal" : undefined}
+                        value={field.value}
+                        onChange={(event) => setFarmDraft((draft) => ({ ...draft, [field.key]: event.target.value }))}
+                        className="w-full h-9 rounded-lg px-3 text-[12px] outline-none bg-transparent"
+                        style={{ border: `1px solid ${c.border}`, color: c.text }}
+                        dir={field.key === "latitude" || field.key === "longitude" ? "ltr" : undefined}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] mt-2" style={{ color: c.sec }}>{f.coordinatesHint}</p>
+                <button
+                  type="button"
+                  onClick={handleSaveFarmProfile}
+                  disabled={activeFarm.isFetching || updateFarmMutation.isPending || farmDraft.name.trim().length < 2}
+                  className="mt-3 px-4 py-2 rounded-full text-[12px] text-white disabled:opacity-40"
+                  style={{ background: c.green, fontFamily: font }}
+                >
+                  {f.saveProfile}
+                </button>
+              </div>
+            )}
+
+            <div className="rounded-lg p-4 mt-4" style={{ border: `1px solid ${c.border}`, background: c.card }}>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="text-[14px]" style={{ color: c.text, fontWeight: 500 }}>{f.zonesTitle}</h3>
+                {zonesQuery.isLoading && <span className="text-[11px]" style={{ color: c.sec }}>…</span>}
+              </div>
+              <div className="flex flex-col gap-2">
+                {(zonesQuery.data ?? []).map((zone: Zone) => {
+                  const editing = editingZone?.id === zone.id;
+                  return (
+                    <div key={zone.id} className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2" style={{ border: `1px solid ${c.border}` }}>
+                      {editing ? (
+                        <>
+                          <input
+                            value={editingZone.name}
+                            onChange={(event) => setEditingZone({ ...editingZone, name: event.target.value })}
+                            aria-label={f.zoneName}
+                            className="flex-1 min-w-[120px] h-8 rounded px-2 text-[12px] outline-none bg-transparent"
+                            style={{ border: `1px solid ${c.border}`, color: c.text }}
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            value={editingZone.sortOrder}
+                            onChange={(event) => setEditingZone({ ...editingZone, sortOrder: Number(event.target.value) })}
+                            aria-label={f.sortOrder}
+                            className="w-20 h-8 rounded px-2 text-[12px] outline-none bg-transparent"
+                            style={{ border: `1px solid ${c.border}`, color: c.text }}
+                          />
+                          <button type="button" aria-label={f.saveChanges} onClick={handleSaveZone} disabled={zonesQuery.isFetching || updateZoneMutation.isPending || !editingZone.name.trim()} style={{ color: c.green }}><Check size={15} /></button>
+                          <button type="button" aria-label={t.common.close} onClick={() => setEditingZone(null)} style={{ color: c.sec }}><X size={15} /></button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-[12px]" style={{ color: c.text }}>{zone.name}</span>
+                          <span className="text-[10px]" style={{ color: c.sec }}>{f.sortOrder}: {zone.sortOrder}</span>
+                          <button
+                            type="button"
+                            aria-label={`${f.editZone}: ${zone.name}`}
+                            onClick={() => setEditingZone({ id: zone.id, name: zone.name, sortOrder: zone.sortOrder })}
+                            style={{ color: c.sec }}
+                          ><Pencil size={14} /></button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+                {zonesQuery.isError && <p className="text-[11px]" style={{ color: c.crit }}>{f.zonesError}</p>}
+              </div>
+              <div className="flex flex-wrap items-end gap-2 mt-3">
+                <label className="flex-1 min-w-[180px]">
+                  <span className="text-[11px] mb-1.5 block" style={{ color: c.sec }}>{f.zoneName}</span>
+                  <input
+                    value={newZoneName}
+                    onChange={(event) => setNewZoneName(event.target.value)}
+                    className="w-full h-9 rounded-lg px-3 text-[12px] outline-none bg-transparent"
+                    style={{ border: `1px solid ${c.border}`, color: c.text }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddZone}
+                  disabled={zonesQuery.isFetching || !newZoneName.trim() || createZoneMutation.isPending}
+                  className="px-3 py-2 rounded-full text-[12px] text-white disabled:opacity-40"
+                  style={{ background: c.green, fontFamily: font }}
+                >
+                  <Plus size={13} className="inline me-1" />{f.addZone}
+                </button>
+              </div>
+            </div>
+
+            {/* Add a farm. Disabled at the limit rather than silently failing on submit. */}
+            <div className="flex flex-wrap items-end gap-3 mt-5">
+              <div className="flex-1 min-w-[220px]">
+                <FieldLabel isRTL={isRTL} font={font}>{f.farmName}</FieldLabel>
+                <MinInput
+                  value={newFarmName}
+                  onChange={setNewFarmName}
+                  placeholder={f.namePlaceholder}
+                  font={font}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCreateFarm}
+                disabled={newFarmName.trim().length < 2 || farmLimitReached || createFarmMutation.isPending}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-[13px] text-white disabled:opacity-40"
+                style={{ background: c.green, fontFamily: font, fontWeight: 500 }}
+              >
+                <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
+                {f.addFarm}
+              </button>
+            </div>
+
+            {farmLimitReached && (
+              <p className="text-[12px] mt-3" style={{ fontFamily: font, color: c.sec }}>
+                {f.limitReached}
+              </p>
             )}
           </section>
 
@@ -1304,6 +1861,95 @@ export function Settings() {
       {/* ════════════════════════════════════════
           INVITE WORKER MODAL
       ════════════════════════════════════════ */}
+      {/* ── Edit worker (role assignment) ─────────────────────────────────── */}
+      {editingWorker && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div
+            className="rounded-lg w-full p-8 relative"
+            style={{ maxWidth: 420, background: c.card, border: `1px solid ${c.border}` }}
+          >
+            <button
+              type="button"
+              aria-label={t.common.close}
+              onClick={() => setEditingWorker(null)}
+              className="absolute top-4 transition-colors"
+              style={{ [isRTL ? "left" : "right"]: 16, color: c.sec }}
+            >
+              <X size={18} strokeWidth={1.5} />
+            </button>
+
+            <h3 className="text-[18px] mb-1" style={{ fontFamily: font, fontWeight: 500, color: c.text }}>
+              {f.editWorkerTitle}
+            </h3>
+            <p className="text-[12px] mb-6" style={{ fontFamily: font, color: c.sec }}>
+              {editingWorker.name}
+            </p>
+
+            <FieldLabel isRTL={isRTL} font={font}>{f.workerTypeLabel}</FieldLabel>
+            <div className="flex gap-3 mt-2">
+              {(["operator", "engineer"] as WorkerType[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  aria-pressed={editingWorker.type === type}
+                  onClick={() =>
+                    setEditingWorker((current) => (current ? { ...current, type } : current))
+                  }
+                  className="flex-1 py-2.5 rounded-full text-[13px] transition-colors"
+                  style={{
+                    fontFamily: font,
+                    border: `1px solid ${editingWorker.type === type ? c.green : c.border}`,
+                    color: editingWorker.type === type ? c.green : c.sec,
+                    background: editingWorker.type === type ? c.iconBg : "transparent",
+                  }}
+                >
+                  {type === "operator" ? wt.operator : wt.engineer}
+                </button>
+              ))}
+            </div>
+
+            {/* Demoting an operator clears valve control server-side, so the consequence of each
+                choice is stated rather than discovered after saving. */}
+            <p className="text-[11px] mt-3" style={{ fontFamily: font, color: c.sec, lineHeight: 1.6 }}>
+              {editingWorker.type === "engineer" ? f.engineerHint : f.operatorHint}
+            </p>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={handleSaveWorker}
+                disabled={updateWorkerMutation.isPending}
+                className="flex-1 py-3 text-white rounded-full text-[14px] transition-colors disabled:opacity-60"
+                style={{ background: c.green, fontFamily: font, fontWeight: 500 }}
+              >
+                {f.saveWorker}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingWorker(null)}
+                className="px-6 py-3 rounded-full text-[14px] transition-colors"
+                style={{ border: `1px solid ${c.border}`, color: c.text, fontFamily: font }}
+              >
+                {wt.cancelBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Farm shape editor ───────────────────────────────────────────────
+          Rendered only once the ACTIVE farm is the one being edited: the save goes to
+          /farms/me/boundary, so opening it during a switch could write one farm's outline onto
+          another. */}
+      {boundaryFarmId && activeFarm.data?.id === boundaryFarmId && (
+        <FarmBoundaryEditor
+          initial={activeFarm.data.boundary}
+          saving={updateBoundaryMutation.isPending}
+          onSave={handleSaveBoundary}
+          onCancel={() => setBoundaryFarmId(null)}
+        />
+      )}
+
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div
@@ -1312,6 +1958,8 @@ export function Settings() {
           >
             {/* Close */}
             <button
+              type="button"
+              aria-label={t.common.close}
               onClick={() => setShowInviteModal(false)}
               className="absolute top-4 transition-colors"
               style={{ [isRTL ? "left" : "right"]: 16, color: c.sec }}
@@ -1340,7 +1988,7 @@ export function Settings() {
               <div>
                 <FieldLabel isRTL={isRTL} font={font}>{wt.inviteTypeLabel}</FieldLabel>
                 <div className="flex gap-3 mt-2">
-                  {(["operator", "observer"] as WorkerType[]).map((type) => (
+                  {(["operator", "engineer"] as WorkerType[]).map((type) => (
                     <button
                       key={type}
                       onClick={() => setInviteForm((f) => ({ ...f, type, grantValve: false }))}
@@ -1352,7 +2000,7 @@ export function Settings() {
                         background: inviteForm.type === type ? c.iconBg : "transparent",
                       }}
                     >
-                      {type === "operator" ? wt.operator : wt.observer}
+                      {type === "operator" ? wt.operator : wt.engineer}
                     </button>
                   ))}
                 </div>
@@ -1399,9 +2047,11 @@ export function Settings() {
         </div>
       )}
 
-      {/* Click-outside overlay to close dropdown menus */}
+      {/* Click-outside overlay to close dropdown menus. aria-hidden because it is a pointer
+          convenience with no keyboard path — exposing it would only add an unnamed element with a
+          click handler to the accessibility tree. The menu's own trigger closes it by keyboard. */}
       {openMenuId && (
-        <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+        <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} aria-hidden="true" />
       )}
     </div>
   );

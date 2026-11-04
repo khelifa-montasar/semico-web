@@ -70,7 +70,7 @@ describe("owner farm access", () => {
       .expect(200);
     expect(asOwner.body.data.ownerCode).toBe(owner.ownerCode);
 
-    const worker = await registerWorker(owner.ownerCode, "OBSERVER");
+    const worker = await registerWorker(owner.ownerCode, "ENGINEER");
     const asWorker = await request(testApp())
       .get("/api/v1/farms/me")
       .set(auth(worker.accessToken))
@@ -105,13 +105,13 @@ describe("valve control capability", () => {
     expect(response.body.data).toMatchObject({ action: "OPEN", durationMin: 15, status: "EXECUTED" });
   });
 
-  it("refuses an OBSERVER", async () => {
+  it("refuses an ENGINEER", async () => {
     const owner = await registerOwner();
-    const observer = await registerWorker(owner.ownerCode, "OBSERVER");
+    const engineer = await registerWorker(owner.ownerCode, "ENGINEER");
 
     const response = await request(testApp())
       .post("/api/v1/farms/me/irrigation/irrigate")
-      .set(auth(observer.accessToken))
+      .set(auth(engineer.accessToken))
       .send({ durationMin: 10 })
       .expect(403);
 

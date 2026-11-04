@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useLocalized } from "../../hooks/useLocalized";
 import { ConsultationBooking } from "../ConsultationBooking";
-import { useContentBundle } from "../../../features/content/useContent";
+import { usePricingPlans } from "../../../features/content/useContent";
 import { useCreateLead } from "../../../features/leads/useLeads";
 
 export function Services() {
@@ -20,8 +20,8 @@ export function Services() {
   const [leadError, setLeadError] = useState<string | null>(null);
   const createLead = useCreateLead();
 
-  const content = useContentBundle();
-  const plans = content.data?.servicePlans ?? [];
+  const pricing = usePricingPlans();
+  const plans = pricing.isError ? [] : pricing.data?.filter((plan) => plan.isActive) ?? [];
 
   function openLeadModal() {
     setModalOpen(true);
@@ -56,14 +56,6 @@ export function Services() {
     );
   }
 
-  /**
-   * Whether a plan is quote-only is decided by `priceValue === null`, not by its index.
-   *
-   * The previous version hardcoded `i === 2`, so reordering the plans in the database would have
-   * silently attached the consultation flow to the wrong card.
-   */
-  const isQuoteOnly = (priceValue: number | null) => priceValue === null;
-
   return (
     <div className="max-w-[960px] mx-auto px-6 py-16" style={{ fontFamily: font }}>
       <h1
@@ -76,66 +68,48 @@ export function Services() {
         {s.subtitle}
       </p>
 
-      {content.isError && (
-        <p className="text-[13px] text-center text-[#FF6B35]">
-          {content.error instanceof Error ? content.error.message : "Could not load plans."}
-        </p>
-      )}
+      {pricing.isPending && <p role="status" className="text-sm text-center mb-6">{s.pricingLoading}</p>}
+      {pricing.isError && <div role="alert" className="text-sm text-center text-[#FF6B35] mb-6">
+        <p>{s.pricingError}</p>
+        <button type="button" disabled={pricing.isFetching} onClick={() => { void pricing.refetch(); }} className="mt-2 underline disabled:opacity-50">{s.retryPricing}</button>
+      </div>}
+      {pricing.isSuccess && plans.length === 0 && <p className="text-sm text-center mb-6">{s.noPlans}</p>}
 
       <div className="grid md:grid-cols-3 gap-6">
-        {plans.map((plan) => {
-          const unit = L(plan.unit);
-          const badge = L(plan.badge);
-          return (
+        {plans.map((plan) => (
             <div key={plan.id} className="border border-[#EAECF0] rounded-lg p-6 flex flex-col">
               <h3 className="text-[16px] text-[#1A1A1A] mb-4" style={{ fontWeight: 500 }}>
-                {L(plan.title)}
+                <bdi>{L(plan.name)}</bdi>
               </h3>
 
-              {plan.priceValue !== null ? (
-                <p
+              <p
                   className="text-[36px] text-[#1A1A1A] mb-1"
                   style={{ fontFamily: "JetBrains Mono", fontWeight: 400 }}
                 >
-                  {plan.priceValue.toLocaleString("en-US")}{" "}
-                  <span className="text-[14px] text-[#9CA3AF]">{unit}</span>
-                </p>
-              ) : (
-                <p className="text-[18px] text-[#6B7280] mb-1" style={{ fontFamily: font }}>
-                  {s.tailored}
-                </p>
-              )}
-
-              {badge && (
-                <span
-                  className="inline-block mt-2 mb-4 px-3 py-1 text-[11px] text-[#6B7280] bg-[#F3F4F6] rounded-full w-fit"
-                  style={{ fontFamily: font }}
-                >
-                  {badge}
-                </span>
-              )}
-
-              <p className="text-[13px] text-[#9CA3AF] mb-6 flex-1">{L(plan.description)}</p>
+                  <bdi>{new Intl.NumberFormat(lang === "ar" ? "ar-DZ" : "en-GB", { style: "currency", currency: plan.currency }).format(plan.price)}</bdi>
+              </p>
+              <ul className="text-[13px] text-[#6B7280] mt-4 mb-6 flex-1 space-y-2">
+                {plan.features.map((feature, index) => <li key={index}><bdi>{L(feature)}</bdi></li>)}
+              </ul>
 
               <button
-                onClick={() => {
-                  if (isQuoteOnly(plan.priceValue)) {
-                    setBookingModal(true);
-                  } else {
-                    openLeadModal();
-                  }
-                }}
+                type="button"
+                onClick={openLeadModal}
                 className={`text-[14px] text-[#00A859] hover:text-[#009150] transition-colors ${
                   isRTL ? "text-right" : "text-left"
                 }`}
                 style={{ fontWeight: 400 }}
               >
-                {plan.priceValue !== null ? s.getStarted : s.contactUs}
+                {s.getStarted}
               </button>
             </div>
-          );
-        })}
+        ))}
       </div>
+
+      <section className="mt-10 rounded-lg border border-[#EAECF0] p-6 flex flex-wrap items-center justify-between gap-4">
+        <h2 className="text-lg">{s.tailored}</h2>
+        <button type="button" onClick={() => setBookingModal(true)} className="text-sm text-[#00A859]">{s.contactUs}</button>
+      </section>
 
       {/* Lead capture Modal */}
       {/*
@@ -148,6 +122,8 @@ export function Services() {
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg border border-[#EAECF0] w-full max-w-[520px] p-8 relative">
             <button
+              type="button"
+              aria-label={t.common.close}
               onClick={() => setModalOpen(false)}
               className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} text-[#9CA3AF] hover:text-[#4A4A4A]`}
             >
@@ -269,6 +245,8 @@ export function Services() {
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="relative w-full max-w-[700px] my-8">
             <button
+              type="button"
+              aria-label={t.common.close}
               onClick={() => setBookingModal(false)}
               className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} z-10 w-8 h-8 flex items-center justify-center text-[#9CA3AF] hover:text-[#4A4A4A] bg-white rounded-full border border-[#EAECF0]`}
             >

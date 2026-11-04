@@ -1,10 +1,10 @@
 import {
   BLOG_CATEGORIES,
-  type BlogCategory,
   type BlogPost,
   type BlogPostSummary,
   type ContentBundle,
   type Product,
+  type PricingPlan,
   type ServicePlan,
   type Stat,
   type TeamMember,
@@ -14,6 +14,7 @@ import {
 import { ApiError } from "../../lib/ApiError.js";
 import { loc, locOrNull } from "../../lib/localized.js";
 import { contentRepository } from "./content.repository.js";
+import { toBlogPost, toBlogSummary, toPricingPlan } from "./content.mapper.js";
 
 /**
  * Public content.
@@ -23,39 +24,11 @@ import { contentRepository } from "./content.repository.js";
  * being repeated in every controller that happens to need a product.
  */
 
-/** Category labels are chrome, so they live with the code rather than in a database column. */
-const CATEGORY_LABELS: Record<BlogCategory, { en: string; ar: string }> = {
-  TECHNOLOGY: { en: "Technology", ar: "التكنولوجيا" },
-  GUIDES: { en: "Guides", ar: "الأدلة" },
-};
-
-type BlogRow = Awaited<ReturnType<typeof contentRepository.listBlogPosts>>[number];
-
-function toBlogSummary(row: BlogRow): BlogPostSummary {
-  const category = (BLOG_CATEGORIES as readonly string[]).includes(row.category)
-    ? (row.category as BlogCategory)
-    : "TECHNOLOGY";
-
-  return {
-    id: row.id,
-    slug: row.slug,
-    publishedAt: row.publishedAt.toISOString(),
-    category,
-    categoryLabel: CATEGORY_LABELS[category],
-    title: loc(row.titleEn, row.titleAr),
-    excerpt: loc(row.excerptEn, row.excerptAr),
-    coverImageUrl: row.coverImageUrl,
-  };
-}
-
-function toBlogPost(row: BlogRow): BlogPost {
-  return {
-    ...toBlogSummary(row),
-    body: locOrNull(row.bodyEn, row.bodyAr),
-  };
-}
-
 export const contentService = {
+  async pricingPlans(): Promise<PricingPlan[]> {
+    return (await contentRepository.listPricingPlans()).map(toPricingPlan);
+  },
+
   async blogPosts(category?: string): Promise<BlogPostSummary[]> {
     if (category) {
       const normalised = category.trim().toUpperCase();

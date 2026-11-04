@@ -89,7 +89,7 @@ export const workersService = {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
 
-    // Valve control is only meaningful for an operator; for an observer it is always false.
+    // Valve control is only meaningful for an operator; for an engineer it is always false.
     const valveControl = input.type === "OPERATOR" ? input.grantValve : false;
 
     const row = await workersRepository.createWorker({
@@ -161,18 +161,26 @@ export const workersService = {
     const current = await workersRepository.findInFarm(farmId, workerId);
     if (!current) throw ApiError.notFound("That worker does not exist on this farm");
 
+    if (current.platformDisabled && input.status !== undefined && input.status !== "DISABLED") {
+      throw ApiError.conflict("Only a super admin can re-enable a platform-disabled account");
+    }
+
     const data: { fullName?: string; workerType?: string; status?: string } = {};
     if (input.name !== undefined) data.fullName = input.name;
     if (input.type !== undefined) data.workerType = input.type;
     if (input.status !== undefined) data.status = input.status;
 
-    // Downgrading an operator to observer must drop the capability with it — otherwise a demoted
+    // Downgrading an operator to engineer must drop the capability with it — otherwise a demoted
     // worker keeps a permission their new role explicitly does not have.
-    const losingOperatorRole = input.type === "OBSERVER" && current.workerType === "OPERATOR";
-    if (losingOperatorRole) data.workerType = "OBSERVER";
+    const losingOperatorRole = input.type === "ENGINEER" && current.workerType === "OPERATOR";
+    if (losingOperatorRole) data.workerType = "ENGINEER";
 
     await prisma.$transaction(async (tx) => {
-      await tx.user.updateMany({ where: { id: workerId, farmId, role: "WORKER" }, data });
+      const result = await tx.user.updateMany({ where: {
+        id: workerId, farmId, role: "WORKER",
+        ...(input.status !== undefined && input.status !== "DISABLED" ? { platformDisabled: false } : {}),
+      }, data });
+      if (result.count === 0) throw ApiError.conflict("The worker's account status or farm membership changed; reload before editing");
 
       if (losingOperatorRole && current.valveControl) {
         await tx.user.update({ where: { id: workerId }, data: { valveControl: false } });
@@ -187,7 +195,7 @@ export const workersService = {
             actorId: auth.userId,
             messageEn: copy.en(current.fullName),
             messageAr: copy.ar(current.fullName),
-            params: JSON.stringify({ workerId, reason: "demoted to observer" }),
+            params: JSON.stringify({ workerId, reason: "demoted to engineer" }),
           },
         });
 
@@ -199,7 +207,7 @@ export const workersService = {
             action: "PERMISSION_REVOKE",
             entityType: "USER",
             entityId: workerId,
-            metadata: { reason: "demoted to observer" },
+            metadata: { reason: "demoted to engineer" },
           },
           req,
         );
@@ -229,7 +237,7 @@ export const workersService = {
     const current = await workersRepository.findInFarm(farmId, workerId);
     if (!current) throw ApiError.notFound("That worker does not exist on this farm");
 
-    // An observer can never hold valve control; granting it would create a state the guard does
+    // An engineer can never hold valve control; granting it would create a state the guard does
     // not honour, which would look like a bug from the owner's side.
     if (granted && current.workerType !== "OPERATOR") {
       throw ApiError.badRequest("Only operators can be granted valve control", {

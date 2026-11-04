@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ROLES, USER_STATUSES, WORKER_TYPES } from "../enums.js";
+import { REGISTRATION_ROLES, ROLES, USER_STATUSES, WORKER_TYPES } from "../enums.js";
 
 /**
  * Auth contracts.
@@ -27,7 +27,7 @@ export const registerSchema = z
     fullName: z.string().trim().min(2, "Enter your full name").max(120),
     email,
     password,
-    role: z.enum(ROLES),
+    role: z.enum(REGISTRATION_ROLES),
     /** Only meaningful for workers; ignored for owners. */
     workerType: z.enum(WORKER_TYPES).optional(),
     /** Required for workers — this is how a worker is attached to a farm. */

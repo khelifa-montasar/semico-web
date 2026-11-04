@@ -134,8 +134,8 @@ const SYSTEM_COMPONENTS = [
     detailEn: "Last reading 2 min ago", detailAr: "آخر قراءة منذ دقيقتين", sortOrder: 1 },
   { key: "MOISTURE_SENSOR_B", nameEn: "Moisture Sensor B", nameAr: "مستشعر الرطوبة B", value: "28%", status: "RED",
     detailEn: "Check sensor connection. Clean probe contacts.", detailAr: "تحقق من توصيل المستشعر. نظّف جهات التلامس.", sortOrder: 2 },
-  { key: "LORA_GATEWAY", nameEn: "LoRa Gateway", nameAr: "بوابة LoRa", value: "-68 dBm", status: "GREEN",
-    detailEn: "Signal strength nominal", detailAr: "قوة الإشارة طبيعية", sortOrder: 3 },
+  { key: "LORA_GATEWAY", nameEn: "LoRa Gateway", nameAr: "بوابة LoRa", value: "Connected", status: "GREEN",
+    detailEn: "Uptime: 120 mins", detailAr: "وقت التشغيل: 120 دقيقة", sortOrder: 3 },
   { key: "BATTERY", nameEn: "Battery", nameAr: "البطارية", value: "91%", status: "GREEN",
     detailEn: "Solar charging active", detailAr: "الشحن الشمسي نشط", sortOrder: 4 },
   { key: "FLOW_METER", nameEn: "Flow Meter", nameAr: "عداد التدفق", value: "2.4 L/min", status: "ORANGE",
@@ -146,11 +146,15 @@ const SYSTEM_COMPONENTS = [
 
 /** `time` is a wall-clock offset applied to today, so the log always looks recent. */
 const ERROR_LOGS = [
-  { time: "14:22:08", component: "MOISTURE_SENSOR_B", messageEn: "Reading below threshold", messageAr: "قراءة أقل من الحد",
+  { time: "14:22:08", component: "MOISTURE_SENSOR_B", zone: "Zone 1", sensorKey: "Z1-S4",
+    messageEn: "Reading below threshold", messageAr: "قراءة أقل من الحد",
     actionEn: "Recalibrate sensor", actionAr: "إعادة معايرة المستشعر" },
-  { time: "13:05:41", component: "FLOW_METER", messageEn: "Low flow warning", messageAr: "تحذير تدفق منخفض",
+  { time: "13:05:41", component: "FLOW_METER", zone: "Zone 2", sensorKey: null,
+    messageEn: "Low flow warning", messageAr: "تحذير تدفق منخفض",
     actionEn: "Inspect water line", actionAr: "فحص خط المياه" },
-  { time: "09:30:12", component: "CONTROLLER", messageEn: "Firmware update available", messageAr: "تحديث البرنامج الثابت متاح",
+  // Farm-wide: no zone, which is what the Location column shows as "—".
+  { time: "09:30:12", component: "CONTROLLER", zone: null, sensorKey: null,
+    messageEn: "Firmware update available", messageAr: "تحديث البرنامج الثابت متاح",
     actionEn: "Update via Settings", actionAr: "التحديث من الإعدادات" },
 ];
 
@@ -216,6 +220,7 @@ async function main(): Promise<void> {
   await prisma.blogPost.deleteMany();
   await prisma.product.deleteMany();
   await prisma.servicePlan.deleteMany();
+  await prisma.pricingPlan.deleteMany();
   await prisma.teamMember.deleteMany();
   await prisma.stat.deleteMany();
   await prisma.testimonial.deleteMany();
@@ -233,6 +238,20 @@ async function main(): Promise<void> {
 
   // ── content ────────────────────────────────────────────────────────────────
   await prisma.servicePlan.createMany({ data: SERVICE_PLANS });
+  await prisma.pricingPlan.createMany({
+    data: SERVICE_PLANS.flatMap((plan) => plan.priceValue === null ? [] : [{
+      nameEn: plan.titleEn,
+      nameAr: plan.titleAr,
+      price: plan.priceValue,
+      currency: "DZD",
+      featuresJson: JSON.stringify([
+        { en: plan.descEn, ar: plan.descAr },
+        ...(plan.unitEn && plan.unitAr ? [{ en: plan.unitEn, ar: plan.unitAr }] : []),
+        ...(plan.badgeEn && plan.badgeAr ? [{ en: plan.badgeEn, ar: plan.badgeAr }] : []),
+      ]),
+      isActive: true,
+    }]),
+  });
   await prisma.product.createMany({ data: PRODUCTS });
   await prisma.blogPost.createMany({
     data: BLOG_POSTS.map((post) => ({ ...post, publishedAt: new Date(post.publishedAt), published: true })),
@@ -296,6 +315,9 @@ async function main(): Promise<void> {
           cellularOperator: "Mobilis",
           cellularSignal: 4,
           batteryPct: 91,
+          loraGatewayOnline: true,
+          loraUptimeMinutes: 120,
+          flowRateLpm: 2.4,
         },
       },
       components: { create: SYSTEM_COMPONENTS },
@@ -319,7 +341,7 @@ async function main(): Promise<void> {
     }),
     prisma.user.create({
       data: { email: "fatima@ferme.dz", passwordHash, fullName: "Fatima B.", role: "WORKER",
-        workerType: "OBSERVER", valveControl: false, status: "ACTIVE", farmId: farm.id },
+        workerType: "ENGINEER", valveControl: false, status: "ACTIVE", farmId: farm.id },
     }),
     prisma.user.create({
       data: { email: "karim@ferme.dz", passwordHash, fullName: "Karim A.", role: "WORKER",
@@ -329,6 +351,32 @@ async function main(): Promise<void> {
   console.log(`  farm "${farm.name}" (owner code ${DEMO_OWNER_CODE}) with ${workers.length} workers`);
 
   const zoneByName = new Map(farm.zones.map((zone) => [zone.name, zone]));
+
+  // ── sensors: 14 per zone, 56 in all ────────────────────────────────────────
+  // Deliberately more than a handful: the System Health view has to scale past 50 sensors, and a
+  // seed with four of them would let a layout that only works for four pass review.
+  const SENSORS_PER_ZONE = 14;
+  const sensorRows = farm.zones.flatMap((zone, zoneIndex) =>
+    Array.from({ length: SENSORS_PER_ZONE }, (_, sensorIndex) => {
+      // A couple of offline sensors, so the Connection column shows both states rather than an
+      // all-green list that proves nothing.
+      const offline =
+        (zoneIndex === 0 && sensorIndex === 3) || (zoneIndex === 1 && sensorIndex === 9);
+
+      return {
+        farmId: farm.id,
+        zoneId: zone.id,
+        key: `Z${zoneIndex + 1}-S${sensorIndex + 1}`,
+        connection: offline ? "OFFLINE" : "ONLINE",
+        // Offline sensors last reported hours ago; online ones within the hour.
+        lastSeenAt: new Date(Date.now() - (offline ? 6 * 60 + 12 : (sensorIndex + 1) * 3) * 60_000),
+        batteryPct: offline ? 8 : 92 - sensorIndex,
+        sortOrder: sensorIndex,
+      };
+    }),
+  );
+  await prisma.sensor.createMany({ data: sensorRows });
+  console.log(`  sensors: ${sensorRows.length}`);
 
   // ── telemetry: 7 daily points matching the old hardcoded chart, plus 48h of hourly detail ──
   const telemetry: Array<Record<string, unknown>> = [];
@@ -383,6 +431,8 @@ async function main(): Promise<void> {
       messageAr: row.messageAr,
       actionEn: row.actionEn,
       actionAr: row.actionAr,
+      zoneId: row.zone ? (zoneByName.get(row.zone)?.id ?? null) : null,
+      sensorKey: row.sensorKey,
     })),
   });
 
@@ -455,7 +505,7 @@ async function main(): Promise<void> {
   console.log("  Demo sign-in:");
   console.log(`    owner   ${DEMO_OWNER_EMAIL} / ${DEMO_PASSWORD}`);
   console.log(`    worker  youssef@ferme.dz / ${DEMO_PASSWORD}  (operator, valve control granted)`);
-  console.log(`    worker  fatima@ferme.dz / ${DEMO_PASSWORD}  (observer, read-only)`);
+  console.log(`    worker  fatima@ferme.dz / ${DEMO_PASSWORD}  (engineer, read-only)`);
   console.log(`  Farm owner code: ${DEMO_OWNER_CODE}\n`);
 }
 

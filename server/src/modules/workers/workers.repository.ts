@@ -33,6 +33,7 @@ export const workersRepository = {
         workerType: true,
         valveControl: true,
         status: true,
+        platformDisabled: true,
         createdAt: true,
       },
     });

@@ -98,9 +98,9 @@ export function useDeleteEducation() {
  *
  * Note the server's field is `pushNotifications`, exposed in the UI as "Notifications".
  */
-export function useFarmSettings() {
+export function useFarmSettings(farmId?: string) {
   return useQuery({
-    queryKey: queryKeys.farm.settings(),
+    queryKey: queryKeys.farm.settings(farmId),
     queryFn: () => farmApi.settings(),
   });
 }
@@ -112,8 +112,15 @@ export function useUpdateFarmSettings() {
       moistureThreshold?: number;
       autoIrrigation?: boolean;
       pushNotifications?: boolean;
+      timezone?: string;
+      zoneCount?: number;
+      sensorsPerZone?: number;
     }) => farmApi.updateSettings(input),
-    onSuccess: (settings) => queryClient.setQueryData(queryKeys.farm.settings(), settings),
+    onSuccess: (settings) => {
+      queryClient.setQueriesData({ queryKey: ["farm", "settings"] }, settings);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.farm.zones() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.systemHealth.sensors() });
+    },
   });
 }
 

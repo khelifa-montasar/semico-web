@@ -1,7 +1,11 @@
+import { createServer } from "node:http";
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { disconnectDatabase } from "./db/prisma.js";
 import { logger } from "./middleware/requestLogger.js";
+import { MqttGateway } from "./modules/telemetry/mqttGateway.js";
+import { setValveCommandTransport } from "./modules/irrigation/commandTransport.js";
+import { attachRealtimeServer } from "./modules/realtime/websocketServer.js";
 
 /**
  * Process entry point.
@@ -13,8 +17,20 @@ import { logger } from "./middleware/requestLogger.js";
  */
 
 const app = createApp();
+const server = createServer(app);
+const realtime = attachRealtimeServer(server);
+const mqttGateway = new MqttGateway({
+  url: env.MQTT_URL,
+  username: env.MQTT_USERNAME,
+  password: env.MQTT_PASSWORD,
+  topicPrefix: env.MQTT_TOPIC_PREFIX,
+  devices: env.MQTT_DEVICE_REGISTRY,
+  publishFarmEvent: (event) => realtime.publishFarmEvent(event),
+});
+setValveCommandTransport(env.MQTT_URL ? mqttGateway : null);
+mqttGateway.start();
 
-const server = app.listen(env.PORT, () => {
+server.listen(env.PORT, () => {
   logger.info(
     { port: env.PORT, env: env.NODE_ENV },
     `Semico API listening on http://localhost:${env.PORT}`,
@@ -35,8 +51,11 @@ async function shutdown(signal: string): Promise<void> {
   }, 10_000);
   forceExit.unref();
 
+  const realtimeClosing = realtime.close();
+  const mqttClosing = mqttGateway.stop();
   server.close(async (error) => {
     if (error) logger.error({ err: error }, "error closing http server");
+    await Promise.allSettled([realtimeClosing, mqttClosing]);
     try {
       await disconnectDatabase();
     } catch (dbError) {

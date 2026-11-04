@@ -32,6 +32,35 @@ const envSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
   COOKIE_DOMAIN: z.string().optional(),
+
+  MQTT_URL: z.string().url().refine((value) => value.startsWith("mqtt://") || value.startsWith("mqtts://"), "MQTT_URL must use mqtt:// or mqtts://").optional(),
+  MQTT_USERNAME: z.string().optional(),
+  MQTT_PASSWORD: z.string().optional(),
+  MQTT_TOPIC_PREFIX: z.string().trim().regex(/^[A-Za-z0-9/_-]+$/).default("semico/v1/devices"),
+  MQTT_DEVICE_REGISTRY: z.string().default("{}").transform((value, ctx) => {
+    try {
+      const parsed = z.record(z.string().regex(/^[A-Za-z0-9_-]+$/), z.object({
+        farmId: z.string().min(1),
+        zoneId: z.string().min(1).optional(),
+        sensorKey: z.string().min(1).optional(),
+        kind: z.enum(["CONTROLLER", "GATEWAY", "SENSOR"]).default("CONTROLLER"),
+      }).strict()).parse(JSON.parse(value));
+      return parsed;
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "MQTT_DEVICE_REGISTRY must be a JSON object of device mappings" });
+      return z.NEVER;
+    }
+  }),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.MQTT_USERNAME) !== Boolean(value.MQTT_PASSWORD)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_PASSWORD"], message: "MQTT_USERNAME and MQTT_PASSWORD must be set together" });
+  }
+  if (value.MQTT_URL && Object.keys(value.MQTT_DEVICE_REGISTRY).length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_DEVICE_REGISTRY"], message: "At least one device mapping is required when MQTT_URL is configured" });
+  }
+  if (value.NODE_ENV === "production" && value.MQTT_URL?.startsWith("mqtt://")) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_URL"], message: "Use mqtts:// for MQTT in production" });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

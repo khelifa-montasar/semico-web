@@ -1,7 +1,7 @@
 import { prisma } from "../../db/prisma.js";
 import { generateOwnerCode } from "../../lib/initials.js";
 import { env } from "../../config/env.js";
-import type { WorkerType } from "@semico/shared";
+import { DEFAULT_SENSORS_PER_ZONE, DEFAULT_ZONE_COUNT, type WorkerType } from "@semico/shared";
 import { userMappingSelect } from "./auth.mapper.js";
 
 /**
@@ -16,7 +16,7 @@ export const authRepository = {
   findByEmailWithSecret(email: string) {
     return prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, passwordHash: true, status: true, role: true },
+      select: { id: true, email: true, passwordHash: true, status: true, platformDisabled: true, role: true },
     });
   },
 
@@ -31,7 +31,7 @@ export const authRepository = {
   findFarmByOwnerCode(ownerCode: string) {
     return prisma.farm.findUnique({
       where: { ownerCode },
-      select: { id: true, name: true, ownerId: true },
+      select: { id: true, name: true, ownerId: true, status: true },
     });
   },
 
@@ -79,14 +79,18 @@ export const authRepository = {
             ownerId: user.id,
             wilayaId: input.wilayaId ?? null,
             commune: input.commune ?? null,
-            settings: { create: {} },
+            settings: {
+              create: {
+                zoneCount: DEFAULT_ZONE_COUNT,
+                sensorsPerZone: DEFAULT_SENSORS_PER_ZONE,
+              },
+            },
             deviceStatus: { create: { controllerOnline: false } },
             zones: {
-              create: [
-                { name: "Zone 1", sortOrder: 0 },
-                { name: "Zone 2", sortOrder: 1 },
-                { name: "Zone 3", sortOrder: 2 },
-              ],
+              create: Array.from({ length: DEFAULT_ZONE_COUNT }, (_, sortOrder) => ({
+                name: `Zone ${sortOrder + 1}`,
+                sortOrder,
+              })),
             },
           },
         });
@@ -150,7 +154,7 @@ export const authRepository = {
         familyId: true,
         expiresAt: true,
         revokedAt: true,
-        user: { select: { id: true, status: true } },
+        user: { select: { id: true, status: true, platformDisabled: true } },
       },
     });
   },

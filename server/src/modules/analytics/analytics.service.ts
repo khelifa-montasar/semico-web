@@ -2,7 +2,9 @@ import type {
   AnalyticsHeatmap,
   AnalyticsOverview,
   AnalyticsRangeQuery,
+  AnalyticsWindowQuery,
   DryingRatePoint,
+  ExportQuery,
   MoisturePoint,
 } from "@semico/shared";
 import { ApiError } from "../../lib/ApiError.js";
@@ -107,11 +109,14 @@ export const analyticsService = {
   },
 
   /** Reuses the telemetry series so the chart and the analytics page cannot disagree. */
-  moisture(auth: AuthContext, query: AnalyticsRangeQuery): Promise<MoisturePoint[]> {
+  moisture(auth: AuthContext, query: AnalyticsWindowQuery): Promise<MoisturePoint[]> {
     return telemetryService.series(auth, {
       interval: query.range === "24h" ? "hour" : "day",
       range: query.range,
       ...(query.zoneId ? { zoneId: query.zoneId } : {}),
+      // An explicit window wins over the preset; telemetry's `windowFor` applies the precedence.
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
     });
   },
 
@@ -233,7 +238,7 @@ export const analyticsService = {
    * Returns a string rather than streaming: at 90 days this is a few hundred rows. A streaming
    * writer would be the right call once exports span seasons.
    */
-  async exportCsv(auth: AuthContext, query: AnalyticsRangeQuery): Promise<string> {
+  async exportCsv(auth: AuthContext, query: ExportQuery): Promise<string> {
     const points = await this.moisture(auth, query);
 
     const header = "at,label,root_moisture,surface_moisture";

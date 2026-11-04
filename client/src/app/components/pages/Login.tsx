@@ -4,6 +4,8 @@ import { SemicoLogo } from "../SemicoLogo";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { ApiError } from "@/lib/api/http";
+import type { AuthUser } from "@semico/shared";
+import { getPostLoginDestination } from "@/features/auth/navigation";
 
 type Tab = "signin" | "signup";
 type Role = "owner" | "worker";
@@ -31,7 +33,7 @@ export function Login() {
   const l = t.login;
 
   /** Where the guard bounced them from, so sign-in returns them there. */
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard";
+  const redirectFrom = (location.state as { from?: string } | null)?.from;
 
   function switchTab(next: Tab) {
     setTab(next);
@@ -54,17 +56,18 @@ export function Login() {
     setFieldErrors({});
 
     try {
+      let authenticatedUser: AuthUser;
       if (tab === "signin") {
-        await login({ email: email.trim(), password });
+        authenticatedUser = await login({ email: email.trim(), password });
       } else if (role === "owner") {
-        await register({
+        authenticatedUser = await register({
           fullName: fullName.trim(),
           email: email.trim(),
           password,
           role: "OWNER",
         });
       } else {
-        await register({
+        authenticatedUser = await register({
           fullName: fullName.trim(),
           email: email.trim(),
           password,
@@ -73,7 +76,7 @@ export function Login() {
         });
       }
 
-      navigate(redirectTo, { replace: true });
+      navigate(getPostLoginDestination(authenticatedUser.role, redirectFrom), { replace: true });
     } catch (error) {
       if (error instanceof ApiError) {
         // Field-level problems (a bad owner code, a duplicate email) belong next to the input.

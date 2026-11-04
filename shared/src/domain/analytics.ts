@@ -13,6 +13,20 @@ export const analyticsRangeSchema = z.object({
   zoneId: z.string().trim().optional(),
 });
 
+/**
+ * A range preset, or an explicit window.
+ *
+ * Used by the endpoints that can honour arbitrary dates (the moisture series and the export). The
+ * others stay on `analyticsRangeSchema`: accepting `from`/`to` and quietly ignoring them would be
+ * worse than not accepting them.
+ */
+export const analyticsWindowSchema = analyticsRangeSchema.extend({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+export type AnalyticsWindowQuery = z.infer<typeof analyticsWindowSchema>;
+
 export const analyticsDateSchema = z.object({
   /** `YYYY-MM-DD` in farm time. Defaults to today. */
   date: z
@@ -83,6 +97,8 @@ export interface AnalyticsHeatmap {
 export const EXPORT_FORMATS = ["csv", "json"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
-export const exportQuerySchema = analyticsRangeSchema.extend({
+export const exportQuerySchema = analyticsWindowSchema.extend({
   format: z.enum(EXPORT_FORMATS).default("csv"),
 });
+
+export type ExportQuery = z.infer<typeof exportQuerySchema>;

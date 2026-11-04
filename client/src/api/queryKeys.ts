@@ -8,6 +8,19 @@
 export const queryKeys = {
   me: ["me"] as const,
 
+  admin: {
+    all: ["admin"] as const,
+    stats: (userId: string | null) => [...queryKeys.admin.all, "stats", userId] as const,
+    pricingAll: ["admin", "pricing"] as const,
+    pricing: (userId: string | null, page: number) => [...queryKeys.admin.pricingAll, userId, page] as const,
+    blogAll: ["admin", "blog"] as const,
+    blog: (userId: string | null, page: number) => [...queryKeys.admin.blogAll, userId, page] as const,
+    farmsAll: ["admin", "farms"] as const,
+    farms: (userId: string | null, page: number) => [...queryKeys.admin.farmsAll, userId, page] as const,
+    usersAll: ["admin", "users"] as const,
+    users: (userId: string | null, page: number) => [...queryKeys.admin.usersAll, userId, page] as const,
+  },
+
   /** The signed-in user's own profile, including experience and education. */
   profile: {
     all: ["profile"] as const,
@@ -17,8 +30,10 @@ export const queryKeys = {
   farm: {
     all: ["farm"] as const,
     detail: () => [...queryKeys.farm.all, "detail"] as const,
-    settings: () => [...queryKeys.farm.all, "settings"] as const,
+    settings: (farmId?: string) => [...queryKeys.farm.all, "settings", farmId ?? "active"] as const,
     zones: () => [...queryKeys.farm.all, "zones"] as const,
+    list: () => [...queryKeys.farm.all, "list"] as const,
+    realtimeAlerts: (farmId: string | null) => [...queryKeys.farm.all, "realtime-alerts", farmId] as const,
   },
 
   telemetry: {
@@ -34,6 +49,7 @@ export const queryKeys = {
     all: ["system-health"] as const,
     detail: () => [...queryKeys.systemHealth.all, "detail"] as const,
     errors: (limit: number) => [...queryKeys.systemHealth.all, "errors", limit] as const,
+    sensors: () => [...queryKeys.systemHealth.all, "sensors"] as const,
   },
 
   activity: {
@@ -82,6 +98,7 @@ export const queryKeys = {
     blog: (category?: string) => [...queryKeys.content.all, "blog", category ?? "all"] as const,
     post: (slug: string) => [...queryKeys.content.all, "post", slug] as const,
     products: () => [...queryKeys.content.all, "products"] as const,
+    pricing: () => [...queryKeys.content.all, "pricing"] as const,
   },
 
   reference: {

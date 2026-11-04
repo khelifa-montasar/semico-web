@@ -2,6 +2,7 @@ import {
   analyticsDateSchema,
   analyticsMonthSchema,
   analyticsRangeSchema,
+  analyticsWindowSchema,
   exportQuerySchema,
   whatIfSchema,
 } from "@semico/shared";
@@ -26,7 +27,7 @@ export const analyticsController = {
 
   /** The moisture trend. Same series the dashboard chart uses, so they cannot diverge. */
   moisture: asyncHandler(async (req, res) => {
-    const query = parseQuery(req, analyticsRangeSchema);
+    const query = parseQuery(req, analyticsWindowSchema);
     return ok(res, await analyticsService.moisture(authOf(req), query));
   }),
 
@@ -49,6 +50,13 @@ export const analyticsController = {
    */
   export: asyncHandler(async (req, res: Response) => {
     const query = parseQuery(req, exportQuerySchema);
+
+    // `format` was accepted and then ignored: the schema offered JSON and the endpoint always sent
+    // CSV. Honouring it is the smaller fix of the two (the alternative was dropping the option),
+    // and the client only ever asks for CSV, so nothing changes for it.
+    if (query.format === "json") {
+      return ok(res, await analyticsService.moisture(authOf(req), query));
+    }
 
     const csv = await analyticsService.exportCsv(authOf(req), query);
 

@@ -3,6 +3,9 @@ import type {
   ErrorLog,
   LatestTelemetry,
   MoisturePoint,
+  Sensor,
+  SensorConnection,
+  SensorZoneGroup,
   SystemComponent,
   SystemHealthResponse,
   TelemetryQuery,
@@ -110,6 +113,9 @@ function toDeviceStatus(
     cellularOperator: row.cellularOperator,
     cellularSignal: row.cellularSignal,
     batteryPct: row.batteryPct,
+    loraGatewayOnline: row.loraGatewayOnline,
+    loraUptimeMinutes: row.loraUptimeMinutes,
+    flowRateLpm: row.flowRateLpm,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -217,6 +223,56 @@ export const telemetryService = {
       componentName: loc(row.component, row.component),
       message: loc(row.messageEn, row.messageAr),
       action: locOrNull(row.actionEn, row.actionAr),
+      location: {
+        zoneId: row.zone?.id ?? null,
+        zoneName: row.zone?.name ?? null,
+        sensorKey: row.sensorKey ?? null,
+      },
     }));
+  },
+
+  /**
+   * Sensors grouped by zone.
+   *
+   * Grouped here rather than in the client because the page renders 50+ of them: a flat list would
+   * make every zone header a reduce over the whole set on each render, and the grouping order is
+   * the farm's own (zone sortOrder, then sensor sortOrder), which the client does not know.
+   * Empty zones are omitted — a zone with no sensors has nothing to show and is not an error.
+   */
+  async sensorsByZone(auth: AuthContext): Promise<SensorZoneGroup[]> {
+    const farmId = requireFarmId(auth);
+    const rows = await telemetryRepository.listSensors(farmId);
+
+    const groups = new Map<string, SensorZoneGroup>();
+
+    for (const row of rows) {
+      const sensor: Sensor = {
+        id: row.id,
+        key: row.key,
+        zoneId: row.zoneId,
+        zoneName: row.zone.name,
+        connection: row.connection as SensorConnection,
+        lastSeenAt: row.lastSeenAt.toISOString(),
+        batteryPct: row.batteryPct,
+      };
+
+      const existing = groups.get(row.zoneId);
+      if (existing) {
+        existing.sensors.push(sensor);
+        if (sensor.connection === "ONLINE") existing.onlineCount += 1;
+        else existing.offlineCount += 1;
+        continue;
+      }
+
+      groups.set(row.zoneId, {
+        zoneId: row.zoneId,
+        zoneName: row.zone.name,
+        sensors: [sensor],
+        onlineCount: sensor.connection === "ONLINE" ? 1 : 0,
+        offlineCount: sensor.connection === "ONLINE" ? 0 : 1,
+      });
+    }
+
+    return [...groups.values()];
   },
 };

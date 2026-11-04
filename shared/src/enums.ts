@@ -10,9 +10,12 @@
  * work with `z.enum(...)` directly, and survive `isolatedModules`/bundler transpilation.
  */
 
-export const ROLES = ["OWNER", "WORKER"] as const;
-export const WORKER_TYPES = ["OPERATOR", "OBSERVER"] as const;
+export const ROLES = ["OWNER", "WORKER", "SUPER_ADMIN"] as const;
+/** Platform administrators are provisioned by the seed, never through public signup. */
+export const REGISTRATION_ROLES = ["OWNER", "WORKER"] as const;
+export const WORKER_TYPES = ["OPERATOR", "ENGINEER"] as const;
 export const USER_STATUSES = ["ACTIVE", "INVITED", "DISABLED"] as const;
+export const FARM_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export const VALVE_STATES = ["OPEN", "CLOSED"] as const;
 export const COMPONENT_STATUSES = ["GREEN", "ORANGE", "RED"] as const;
 export const ACTIVITY_TYPES = ["AUTO", "MANUAL"] as const;
@@ -48,6 +51,9 @@ export const AUDIT_ACTIONS = [
   "OWNER_CODE_ROTATED",
   "PROFILE_UPDATED",
   "PASSWORD_RESET",
+  "FARM_CREATED",
+  "ADMIN_FARM_STATUS_CHANGED",
+  "ADMIN_USER_STATUS_CHANGED",
 ] as const;
 
 export const AUDIT_ENTITY_TYPES = ["USER", "ZONE", "FARM", "SESSION"] as const;
@@ -60,6 +66,7 @@ export const LOCALES = ["en", "ar"] as const;
 export type Role = (typeof ROLES)[number];
 export type WorkerType = (typeof WORKER_TYPES)[number];
 export type UserStatus = (typeof USER_STATUSES)[number];
+export type FarmStatus = (typeof FARM_STATUSES)[number];
 export type ValveState = (typeof VALVE_STATES)[number];
 export type ComponentStatus = (typeof COMPONENT_STATUSES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];

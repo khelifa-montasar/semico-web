@@ -21,5 +21,8 @@ telemetryRoutes.get("/telemetry", ...memberOnly, telemetryController.series);
 
 telemetryRoutes.get("/device-status", ...memberOnly, telemetryController.deviceStatus);
 
+/** Sensors grouped by zone — the System Health main view. */
+telemetryRoutes.get("/sensors", ...memberOnly, telemetryController.sensors);
+
 telemetryRoutes.get("/system-health", ...memberOnly, telemetryController.systemHealth);
 telemetryRoutes.get("/system-health/errors", ...memberOnly, telemetryController.errorLogs);

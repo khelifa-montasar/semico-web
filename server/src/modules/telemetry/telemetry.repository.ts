@@ -7,6 +7,20 @@ import type { TelemetryQuery } from "@semico/shared";
  * All reads are farm-scoped and time-bounded. `Telemetry` carries a composite `(farmId,
  * recordedAt)` index precisely because every query here is a range scan over one farm's readings.
  */
+type TelemetryReadingInput = {
+  farmId: string;
+  zoneId?: string | null;
+  recordedAt: Date;
+  sourceMessageId?: string | null;
+  rootMoisture?: number | null;
+  surfaceMoisture?: number | null;
+  soilTempC?: number | null;
+  batteryPct?: number | null;
+  flowRateLpm?: number | null;
+  loraRssi?: number | null;
+  valveState?: string | null;
+};
+
 export const telemetryRepository = {
   /** Readings for a farm in a window, used by the chart series. */
   listRange(
@@ -79,23 +93,98 @@ export const telemetryRepository = {
       where: { farmId },
       orderBy: { occurredAt: "desc" },
       take: limit,
+      // The location is shown in the table, so it is fetched with the row rather than left to a
+      // second query per entry.
+      include: { zone: { select: { id: true, name: true } } },
     });
   },
 
-  /** Raw ingest, used by the (future) device gateway and by tests. */
-  createReading(data: {
-    farmId: string;
-    zoneId?: string | null;
-    recordedAt: Date;
-    rootMoisture?: number | null;
-    surfaceMoisture?: number | null;
-    soilTempC?: number | null;
-    batteryPct?: number | null;
-    flowRateLpm?: number | null;
-    loraRssi?: number | null;
-    valveState?: string | null;
-  }) {
+  /** Every sensor on the farm, with its zone, ordered so grouping is a single pass. */
+  listSensors(farmId: string) {
+    return prisma.sensor.findMany({
+      where: { farmId },
+      orderBy: [{ zone: { sortOrder: "asc" } }, { sortOrder: "asc" }, { key: "asc" }],
+      include: { zone: { select: { id: true, name: true, sortOrder: true } } },
+    });
+  },
+
+  /** Raw ingest, used by the MQTT gateway and tests. */
+  createReading(data: TelemetryReadingInput) {
     return prisma.telemetry.create({ data });
+  },
+
+  /** Persist a validated device reading and its compatible health state atomically. */
+  async persistDeviceReading(input: {
+    reading: TelemetryReadingInput;
+    kind: "CONTROLLER" | "GATEWAY" | "SENSOR";
+    sensorKey?: string;
+  }) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const { reading, kind, sensorKey } = input;
+        const prior = await tx.telemetry.findUnique({
+          where: {
+            farmId_sourceMessageId: {
+              farmId: reading.farmId,
+              sourceMessageId: reading.sourceMessageId ?? "",
+            },
+          },
+        });
+        if (prior) return { reading: prior, duplicate: true };
+
+        const persisted = await tx.telemetry.create({ data: reading });
+        await tx.deviceStatus.upsert({
+          where: { farmId: reading.farmId },
+          create: {
+            farmId: reading.farmId,
+            controllerOnline: kind === "CONTROLLER",
+            loraGatewayOnline: kind === "GATEWAY",
+            loraRssi: reading.loraRssi ?? null,
+            batteryPct: reading.batteryPct ?? null,
+            flowRateLpm: reading.flowRateLpm ?? null,
+          },
+          update: {
+            ...(kind === "CONTROLLER" ? { controllerOnline: true } : {}),
+            ...(kind === "GATEWAY" ? { loraGatewayOnline: true } : {}),
+            ...(reading.loraRssi !== undefined ? { loraRssi: reading.loraRssi } : {}),
+            ...(reading.batteryPct !== undefined ? { batteryPct: reading.batteryPct } : {}),
+            ...(reading.flowRateLpm !== undefined ? { flowRateLpm: reading.flowRateLpm } : {}),
+          },
+        });
+
+        if (sensorKey) {
+          const updated = await tx.sensor.updateMany({
+            where: { farmId: reading.farmId, zoneId: reading.zoneId ?? undefined, key: sensorKey },
+            data: {
+              connection: "ONLINE",
+              lastSeenAt: new Date(),
+              ...(reading.batteryPct !== undefined ? { batteryPct: reading.batteryPct } : {}),
+            },
+          });
+          if (updated.count !== 1) throw new Error("Configured sensor no longer exists on its farm");
+        }
+
+        const status = await tx.deviceStatus.findUnique({ where: { farmId: reading.farmId } });
+        return { reading: persisted, status, duplicate: false };
+      });
+    } catch (error) {
+      if (
+        input.reading.sourceMessageId &&
+        typeof error === "object" && error !== null &&
+        "code" in error && error.code === "P2002"
+      ) {
+        const prior = await prisma.telemetry.findUnique({
+          where: {
+            farmId_sourceMessageId: {
+              farmId: input.reading.farmId,
+              sourceMessageId: input.reading.sourceMessageId,
+            },
+          },
+        });
+        if (prior) return { reading: prior, duplicate: true as const };
+      }
+      throw error;
+    }
   },
 
   countReadings(farmId: string, window: { from: Date; to: Date }) {

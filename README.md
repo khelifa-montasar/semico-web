@@ -117,6 +117,25 @@ The seed creates a demo farm you can sign in with:
 The demo farm's owner code is `SEMI-CO26` — a worker signs up with it to join an existing farm.
 **These are demo credentials; change them before any real deployment.**
 
+To provision the first platform administrator, apply migrations, set `SUPER_ADMIN_PASSWORD`
+in `server/.env`, and run `npm run db:seed:admin`. The email defaults to `admin@semico.dz`;
+set `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_NAME` to customize it. This separate seed creates no farm
+and preserves existing data. See [the server instructions](server/README.md#first-platform-administrator).
+
+Platform admins manage bilingual pricing plans at `/admin/pricing` and blog posts at `/admin/blog`.
+The public `/services` page reads active `PricingPlan` records, not legacy service-plan data or
+hardcoded prices. Create plans in the portal, or seed demo data for two initial active plans.
+Blog drafts stay private until published. See [CMS API details](server/README.md#content--pricing-management).
+
+The final oversight screens are `/admin/farms` (suspend/resume farms) and `/admin/users`
+(disable/enable accounts). Apply pending migrations with `npm --workspace server run db:deploy`
+before launching; this adds the platform account lock without resetting data. See
+[oversight safeguards and API details](server/README.md#farms--users-oversight).
+
+For a thesis-ready description of the complete V5 system, including architecture, data flows,
+security, validation evidence, and implementation limitations, see
+[the platform architecture summary](docs/THESIS-ARCHITECTURE.md).
+
 ## Scripts
 
 | Command | Does |
@@ -125,11 +144,14 @@ The demo farm's owner code is `SEMI-CO26` — a worker signs up with it to join 
 | `npm run build` | Typecheck `shared`, then build `server` and `client` |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 | `npm run lint` | ESLint across all workspaces |
-| `npm run test` | API test suite — 91 cases (vitest + supertest) |
+| `npm run test` | Full server and client test suites |
 | `npm run db:migrate` | Create/apply a Prisma migration |
 | `npm run db:seed` | Seed demo data |
 | `npm run db:studio` | Browse the database |
 | `npm run db:reset` | Drop, re-migrate and re-seed |
+| `npm run esp32:simulator` | Publish fake MQTT telemetry and receive valve commands |
+
+For exact broker, app, and simulator commands, see the [graduation defense MQTT demo](docs/realtime-mqtt.md#graduation-defense-exact-local-commands).
 
 Continuous integration runs typecheck, lint, tests and both builds (`.github/workflows/ci.yml`).
 

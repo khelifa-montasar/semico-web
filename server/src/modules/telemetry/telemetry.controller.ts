@@ -37,6 +37,11 @@ export const telemetryController = {
     ok(res, await telemetryService.deviceStatus(authOf(req))),
   ),
 
+  /** Sensors grouped by zone, for the System Health main view. */
+  sensors: asyncHandler(async (req, res) =>
+    ok(res, await telemetryService.sensorsByZone(authOf(req))),
+  ),
+
   systemHealth: asyncHandler(async (req, res) =>
     ok(res, await telemetryService.systemHealth(authOf(req))),
   ),

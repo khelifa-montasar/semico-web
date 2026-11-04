@@ -3,6 +3,7 @@ import type {
   ErrorLog,
   LatestTelemetry,
   MoisturePoint,
+  SensorZoneGroup,
   SystemHealthResponse,
 } from "@semico/shared";
 import { api, qs } from "../lib/api/http";
@@ -28,4 +29,7 @@ export const telemetryApi = {
 
   systemHealth: () => api.get<SystemHealthResponse>("/farms/me/system-health"),
   errorLogs: (limit = 20) => api.get<ErrorLog[]>(`/farms/me/system-health/errors${qs({ limit })}`),
+
+  /** Sensors grouped by zone — already grouped server-side, so the page does not reduce per render. */
+  sensors: () => api.get<SensorZoneGroup[]>("/farms/me/sensors"),
 };

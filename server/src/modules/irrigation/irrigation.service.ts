@@ -5,6 +5,7 @@ import type {
   IrrigateInput,
   ValveCommandInput,
   PaginationMeta,
+  ValveCommandMessage,
 } from "@semico/shared";
 import type { Request } from "express";
 import { prisma } from "../../db/prisma.js";
@@ -12,6 +13,7 @@ import { ApiError } from "../../lib/ApiError.js";
 import { writeAudit } from "../../lib/audit.js";
 import { parsePage } from "../../lib/pagination.js";
 import { irrigationRepository } from "./irrigation.repository.js";
+import { getValveCommandTransport } from "./commandTransport.js";
 import type { AuthContext } from "../../types/auth.js";
 
 /**
@@ -58,17 +60,15 @@ function toCommand(row: CommandRow): IrrigationCommand {
     durationMin: row.durationMin,
     status: row.status as CommandStatus,
     requestedAt: row.requestedAt.toISOString(),
+    acknowledgedAt: row.acknowledgedAt?.toISOString() ?? null,
     executedAt: row.executedAt?.toISOString() ?? null,
   };
 }
 
 export const irrigationService = {
   /**
-   * Opens a valve for a duration, or closes it.
-   *
-   * `durationMin` is null for a close. The device layer is not implemented, so the command is
-   * marked EXECUTED immediately — when a real gateway exists, it becomes PENDING and the device
-   * confirms asynchronously. The shape of the record does not change.
+   * Opens a valve for a duration, or closes it. Without an MQTT command transport this remains a
+   * simulated immediate execution; with a transport it stays PENDING until a terminal device ACK.
    */
   async issue(
     auth: AuthContext,
@@ -83,6 +83,9 @@ export const irrigationService = {
 
     // 404 rather than 403 for another farm's zone: a 403 would confirm the id exists.
     if (!zone) throw ApiError.notFound("That zone does not exist");
+
+    const transport = getValveCommandTransport();
+    transport?.assertCanRoute(farmId, zone.id);
 
     const opening = input.action === "OPEN";
     const durationMin = opening ? (input.durationMin ?? 10) : null;
@@ -105,11 +108,11 @@ export const irrigationService = {
         issuedById: auth.userId,
         action: input.action,
         durationMin,
-        status: "EXECUTED",
-        executedAt: now,
+        status: transport ? "PENDING" : "EXECUTED",
+        executedAt: transport ? null : now,
       });
 
-      await irrigationRepository.setValveState(tx, zone.id, opening ? "OPEN" : "CLOSED");
+      if (!transport) await irrigationRepository.setValveState(tx, zone.id, opening ? "OPEN" : "CLOSED");
 
       // The farmer's feed.
       await tx.activityLog.create({
@@ -122,8 +125,12 @@ export const irrigationService = {
           type: "MANUAL",
           zoneId: zone.id,
           actorId: auth.userId,
-          messageEn: copy.en,
-          messageAr: copy.ar,
+          messageEn: transport
+            ? `Valve ${input.action.toLowerCase()} requested for ${zone.name}.`
+            : copy.en,
+          messageAr: transport
+            ? `تم طلب ${opening ? "فتح" : "إغلاق"} الصمام لـ ${zone.name}.`
+            : copy.ar,
           params: JSON.stringify({ durationMin, commandId: command.id }),
         },
       });
@@ -149,6 +156,22 @@ export const irrigationService = {
 
       return command.id;
     });
+
+    if (transport) {
+      const command: ValveCommandMessage = {
+        commandId,
+        zoneId: zone.id,
+        action: input.action,
+        durationMin,
+        issuedAt: now.toISOString(),
+      };
+      try {
+        await transport.publishValveCommand(command, farmId);
+      } catch (error) {
+        await irrigationRepository.failUnacknowledgedCommand(commandId);
+        throw new ApiError(503, "DEVICE_UNAVAILABLE", "The valve controller could not be reached", { cause: error });
+      }
+    }
 
     const { rows } = await irrigationRepository.listCommands(
       farmId,

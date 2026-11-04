@@ -260,13 +260,103 @@ describe("education", () => {
       .delete(`/api/v1/users/me/education/${entry.id}`)
       .set(auth(ownerB.accessToken))
       .expect(404);
+
+    await request(testApp())
+      .patch(`/api/v1/users/me/education/${entry.id}`)
+      .set(auth(ownerB.accessToken))
+      .send({ degree: "Hijacked" })
+      .expect(404);
+
+    // And the row is untouched by the attempt.
+    const stillThere = await prisma.education.findUniqueOrThrow({ where: { id: entry.id } });
+    expect(stillThere.degree).toBe(EDUCATION.degree);
+  });
+
+  it("updates an entry in place", async () => {
+    const owner = await registerOwner();
+
+    const created = await request(testApp())
+      .post("/api/v1/users/me/education")
+      .set(auth(owner.accessToken))
+      .send(EDUCATION)
+      .expect(201);
+    const entry = created.body.data.educations[0] as { id: string; degree: string };
+
+    const updated = await request(testApp())
+      .patch(`/api/v1/users/me/education/${entry.id}`)
+      .set(auth(owner.accessToken))
+      .send({ degree: "Ph.D. Irrigation Science", year: "2024" })
+      .expect(200);
+
+    const after = updated.body.data.educations[0];
+    expect(after).toMatchObject({ id: entry.id, degree: "Ph.D. Irrigation Science", year: "2024" });
+    // The field that was not sent keeps its value rather than being cleared.
+    expect(after.institution).toBe(EDUCATION.institution);
+
+    // Exactly one row: an update that inserted instead of updating would show up as two.
+    expect(updated.body.data.educations).toHaveLength(1);
+  });
+
+  it("reports 404 for an empty body, which is misleading but harmless", async () => {
+    // DOCUMENTED ODDITY, not desired behaviour: `prisma.updateMany` with an empty `data` object
+    // returns `count: 0`, and the service reads a zero count as "no such entry". So a PATCH that
+    // changes nothing answers 404 about an entry that demonstrably exists. No client sends an empty
+    // patch, so this is recorded rather than repaired — but it should be fixed before anyone writes
+    // one, because 404 is the wrong answer to "nothing to do".
+    const owner = await registerOwner();
+
+    const created = await request(testApp())
+      .post("/api/v1/users/me/education")
+      .set(auth(owner.accessToken))
+      .send(EDUCATION)
+      .expect(201);
+    const entry = created.body.data.educations[0] as { id: string };
+
+    await request(testApp())
+      .patch(`/api/v1/users/me/education/${entry.id}`)
+      .set(auth(owner.accessToken))
+      .send({})
+      .expect(404);
+
+    // The entry is still there and unchanged, which is the part that matters.
+    const unchanged = await prisma.education.findUniqueOrThrow({ where: { id: entry.id } });
+    expect(unchanged.degree).toBe(EDUCATION.degree);
+  });
+
+  it("rejects a degree that is too short to be a degree", async () => {
+    const owner = await registerOwner();
+
+    const created = await request(testApp())
+      .post("/api/v1/users/me/education")
+      .set(auth(owner.accessToken))
+      .send(EDUCATION)
+      .expect(201);
+    const entry = created.body.data.educations[0] as { id: string };
+
+    const response = await request(testApp())
+      .patch(`/api/v1/users/me/education/${entry.id}`)
+      .set(auth(owner.accessToken))
+      .send({ degree: "B" })
+      .expect(400);
+
+    expect(response.body.error.details).toHaveProperty("degree");
+  });
+
+  it("404s on an entry that does not exist", async () => {
+    const owner = await registerOwner();
+
+    await request(testApp())
+      .patch("/api/v1/users/me/education/does-not-exist")
+      .set(auth(owner.accessToken))
+      .send({ degree: "M.Sc. Something" })
+      .expect(404);
   });
 });
 
 describe("a worker's profile is their own", () => {
   it("lets a worker edit their profile without affecting the owner's", async () => {
     const owner = await registerOwner();
-    const worker = await registerWorker(owner.ownerCode, "OBSERVER");
+    const worker = await registerWorker(owner.ownerCode, "ENGINEER");
 
     await request(testApp())
       .patch("/api/v1/users/me")

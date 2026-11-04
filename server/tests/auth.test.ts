@@ -115,7 +115,7 @@ describe("POST /auth/register", () => {
           email: "lost@test.dz",
           password: PASSWORD,
           role: "WORKER",
-          workerType: "OBSERVER",
+          workerType: "ENGINEER",
           ownerCode: unusedOwnerCode(),
         })
         .expect(400);
@@ -134,7 +134,7 @@ describe("POST /auth/register", () => {
           email: "nocode@test.dz",
           password: PASSWORD,
           role: "WORKER",
-          workerType: "OBSERVER",
+          workerType: "ENGINEER",
         })
         .expect(400);
 

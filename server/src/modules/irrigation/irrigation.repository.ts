@@ -42,6 +42,59 @@ export const irrigationRepository = {
     return tx.zone.update({ where: { id: zoneId }, data: { valveState } });
   },
 
+  findCommand(commandId: string) {
+    return prisma.irrigationCommand.findUnique({ where: { id: commandId } });
+  },
+
+  async markCommandReceived(commandId: string, farmId: string, zoneId: string, receivedAt: Date): Promise<boolean> {
+    const result = await prisma.irrigationCommand.updateMany({
+      where: { id: commandId, farmId, zoneId, status: "PENDING", acknowledgedAt: null },
+      data: { acknowledgedAt: receivedAt },
+    });
+    return result.count === 1;
+  },
+
+  async completeCommand(input: {
+    commandId: string;
+    farmId: string;
+    zoneId: string;
+    action: string;
+    status: "EXECUTED" | "FAILED";
+    executedAt?: Date;
+    valveState?: string;
+  }): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      const command = await tx.irrigationCommand.findFirst({
+        where: {
+          id: input.commandId,
+          farmId: input.farmId,
+          zoneId: input.zoneId,
+          status: "PENDING",
+        },
+        select: { id: true, action: true },
+      });
+      if (!command || command.action !== input.action) return false;
+
+      const updated = await tx.irrigationCommand.updateMany({
+        where: { id: command.id, status: "PENDING" },
+        data: { status: input.status, executedAt: input.executedAt ?? null },
+      });
+      if (updated.count !== 1) return false;
+      if (input.status === "EXECUTED" && input.valveState) {
+        await tx.zone.update({ where: { id: input.zoneId }, data: { valveState: input.valveState } });
+      }
+      return true;
+    });
+  },
+
+  async failUnacknowledgedCommand(commandId: string): Promise<boolean> {
+    const result = await prisma.irrigationCommand.updateMany({
+      where: { id: commandId, status: "PENDING", acknowledgedAt: null },
+      data: { status: "FAILED" },
+    });
+    return result.count === 1;
+  },
+
   async listCommands(
     farmId: string,
     filters: { status?: string | undefined; zoneId?: string | undefined },

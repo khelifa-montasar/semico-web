@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { AuthUser, LoginInput, RegisterInput } from "@semico/shared";
 import { authApi } from "@/api/auth";
-import { setAccessToken, setUnauthorizedHandler } from "@/lib/api/http";
+import { setAccessToken, setActiveFarmId, setUnauthorizedHandler } from "@/lib/api/http";
 
 /**
  * Session state for the whole app.
@@ -77,6 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Shared by login and register: both return a session in the same shape. */
   const adoptSession = useCallback(async (session: { user: AuthUser; accessToken: string }) => {
     setAccessToken(session.accessToken);
+    // A fresh session may be a different account, so a farm selected by the previous one must not
+    // carry over — the server would (correctly) refuse it. The bootstrap refresh deliberately does
+    // not do this, so a reload keeps the owner's chosen farm.
+    setActiveFarmId(null);
     setUser(session.user);
     setStatus("authenticated");
     return session.user;
@@ -98,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Clear locally even if the server call failed — the user asked to sign out.
       setAccessToken(null);
+      setActiveFarmId(null);
       setUser(null);
       setStatus("anonymous");
     }

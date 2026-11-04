@@ -25,21 +25,23 @@ export interface UserRowForMapping {
   bio: string | null;
   farmId: string | null;
   farm?: { id: string; name: string } | null;
-  ownedFarm?: { id: string; name: string } | null;
+  ownedFarms?: Array<{ id: string; name: string }>;
 }
 
 export function toAuthUser(user: UserRowForMapping): AuthUser {
-  const farm = user.farm ?? user.ownedFarm ?? null;
+  // Platform administrators have no active farm; owners use their oldest farm.
+  const isSuperAdmin = user.role === "SUPER_ADMIN";
+  const farm = isSuperAdmin ? null : user.farm ?? user.ownedFarms?.[0] ?? null;
 
   return {
     id: user.id,
     email: user.email,
     fullName: user.fullName,
     role: user.role as Role,
-    workerType: (user.workerType as WorkerType | null) ?? null,
-    valveControl: user.valveControl,
+    workerType: isSuperAdmin ? null : (user.workerType as WorkerType | null) ?? null,
+    valveControl: isSuperAdmin ? false : user.valveControl,
     status: user.status as UserStatus,
-    farmId: farm?.id ?? user.farmId ?? null,
+    farmId: isSuperAdmin ? null : farm?.id ?? user.farmId ?? null,
     farmName: farm?.name ?? null,
     avatarUrl: user.avatarUrl,
     phone: user.phone,
@@ -66,5 +68,5 @@ export const userMappingSelect = {
   bio: true,
   farmId: true,
   farm: { select: { id: true, name: true } },
-  ownedFarm: { select: { id: true, name: true } },
+  ownedFarms: { select: { id: true, name: true }, orderBy: { createdAt: "asc" }, take: 1 },
 } as const;

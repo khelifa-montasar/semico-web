@@ -31,3 +31,18 @@ export function useErrorLogs(limit = 20) {
     placeholderData: (previous) => previous,
   });
 }
+
+/**
+ * Sensors grouped by zone.
+ *
+ * Polled alongside the health summary: a sensor's connection state is the thing the page exists to
+ * show, and a stale "Online" is worse than a slightly late one.
+ */
+export function useSensors() {
+  return useQuery({
+    queryKey: queryKeys.systemHealth.sensors(),
+    queryFn: () => telemetryApi.sensors(),
+    refetchInterval: HEALTH_POLL_MS,
+    placeholderData: (previous) => previous,
+  });
+}

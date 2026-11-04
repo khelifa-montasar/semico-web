@@ -7,6 +7,7 @@
  */
 
 export { activityApi, type ActivityFilters } from "./activity";
+export { adminApi } from "./admin";
 export { analyticsApi, type RangeParams } from "./analytics";
 export { authApi } from "./auth";
 export { bookingsApi } from "./bookings";
@@ -16,6 +17,7 @@ export { irrigationApi } from "./irrigation";
 export { leadsApi } from "./leads";
 export { usersApi } from "./profile";
 export { telemetryApi, type SeriesParams } from "./telemetry";
+export { realtimeApi } from "./realtime";
 export { workersApi } from "./workers";
 export { queryKeys } from "./queryKeys";
 

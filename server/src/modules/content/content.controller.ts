@@ -21,6 +21,11 @@ const slugParamSchema = z.object({
 });
 
 export const contentController = {
+  pricingPlans: asyncHandler(async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    return ok(res, await contentService.pricingPlans());
+  }),
+
   blogPosts: asyncHandler(async (req, res) => {
     const { category } = parseQuery(req, blogQuerySchema);
     return ok(res, await contentService.blogPosts(category));

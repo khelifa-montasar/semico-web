@@ -4,6 +4,8 @@ import type { Express } from "express";
 import { prisma } from "../../src/db/prisma.js";
 import { createApp } from "../../src/app.js";
 import { generateOwnerCode } from "../../src/lib/initials.js";
+import { seedSuperAdmin } from "../../prisma/seeds/super-admin.js";
+import { mqttDeviceActivity } from "../../src/modules/telemetry/deviceActivity.js";
 
 /**
  * Test helpers.
@@ -23,6 +25,7 @@ export function testApp(): Express {
 
 /** Empties every table. Called between tests so suites cannot leak state into each other. */
 export async function resetDatabase(): Promise<void> {
+  mqttDeviceActivity.clear();
   await prisma.auditLog.deleteMany();
   await prisma.activityLog.deleteMany();
   await prisma.irrigationCommand.deleteMany();
@@ -31,6 +34,7 @@ export async function resetDatabase(): Promise<void> {
   await prisma.systemComponent.deleteMany();
   await prisma.deviceStatus.deleteMany();
   await prisma.farmSettings.deleteMany();
+  await prisma.sensor.deleteMany();
   await prisma.zone.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.experience.deleteMany();
@@ -38,6 +42,7 @@ export async function resetDatabase(): Promise<void> {
   await prisma.booking.deleteMany();
   await prisma.bookingBlock.deleteMany();
   await prisma.lead.deleteMany();
+  await prisma.pricingPlan.deleteMany();
   await prisma.user.deleteMany();
   await prisma.farm.deleteMany();
   await prisma.wilaya.deleteMany();
@@ -56,6 +61,28 @@ export interface RegisteredUser {
   farmId: string;
   ownerCode: string;
   refreshCookie: string;
+}
+
+export interface SuperAdminUser extends Omit<RegisteredUser, "farmId" | "ownerCode"> {
+  farmId: null;
+}
+
+/** Provisioning follows the admin seed; sessions use the real login endpoint. */
+export async function createSuperAdmin(): Promise<SuperAdminUser> {
+  const email = uniqueEmail("admin");
+  await seedSuperAdmin(prisma, { email, password: PASSWORD, fullName: "Test Super Admin" });
+  const response = await request(testApp())
+    .post("/api/v1/auth/login")
+    .send({ email, password: PASSWORD })
+    .expect(200);
+
+  return {
+    email,
+    accessToken: response.body.data.accessToken,
+    userId: response.body.data.user.id,
+    farmId: response.body.data.user.farmId,
+    refreshCookie: extractRefreshCookie(response.headers["set-cookie"]),
+  };
 }
 
 /** Registers a farm owner and returns everything a test needs to act as them. */
@@ -82,7 +109,7 @@ export async function registerOwner(farmName = "Test Farm"): Promise<RegisteredU
 /** Registers a worker against an existing farm's owner code. */
 export async function registerWorker(
   ownerCode: string,
-  workerType: "OPERATOR" | "OBSERVER" = "OBSERVER",
+  workerType: "OPERATOR" | "ENGINEER" = "ENGINEER",
 ): Promise<RegisteredUser> {
   const email = uniqueEmail("worker");
 

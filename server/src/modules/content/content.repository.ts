@@ -8,6 +8,13 @@ import { prisma } from "../../db/prisma.js";
  * deploy.
  */
 export const contentRepository = {
+  listPricingPlans() {
+    return prisma.pricingPlan.findMany({
+      where: { isActive: true },
+      orderBy: [{ price: "asc" }, { id: "asc" }],
+    });
+  },
+
   listBlogPosts(includeUnpublished = false) {
     return prisma.blogPost.findMany({
       where: includeUnpublished ? {} : { published: true },

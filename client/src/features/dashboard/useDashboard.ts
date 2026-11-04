@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { analyticsApi, irrigationApi, queryKeys, telemetryApi, type SeriesParams } from "@/api";
+import {
+  analyticsApi,
+  farmApi,
+  irrigationApi,
+  queryKeys,
+  telemetryApi,
+  type SeriesParams,
+} from "@/api";
 
 /**
  * Dashboard data.
@@ -25,6 +32,21 @@ export function useMoistureSeries(params: SeriesParams) {
   return useQuery({
     queryKey: queryKeys.telemetry.series(params),
     queryFn: () => telemetryApi.series(params),
+    refetchInterval: LIVE_POLL_MS,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * Zones with their latest moisture — what the live map colours.
+ *
+ * Polled with the rest of the live dashboard: a zone colour that is minutes stale would say a dry
+ * field is fine. The server already resolves `latestMoisture` per zone, so the map needs no join.
+ */
+export function useZones() {
+  return useQuery({
+    queryKey: queryKeys.farm.zones(),
+    queryFn: () => farmApi.zones(),
     refetchInterval: LIVE_POLL_MS,
     placeholderData: (previous) => previous,
   });

@@ -41,6 +41,8 @@ export interface IrrigationCommand {
   durationMin: number | null;
   status: CommandStatus;
   requestedAt: string;
-  /** Simulated execution time — the device layer is not implemented yet. */
+  /** First device receipt time; receipt is not proof of valve execution. */
+  acknowledgedAt: string | null;
+  /** Set only after simulated execution or a terminal device ACK. */
   executedAt: string | null;
 }

@@ -47,6 +47,61 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+/**
+ * The farm `/farms/me/*` currently acts on, when the owner holds more than one.
+ *
+ * Persisted in localStorage because it is a per-browser preference, not session state: reloading
+ * should not silently drop the owner back onto their oldest farm. It is a CONVENIENCE only — the
+ * server still decides whether the caller may act on that farm, and returns 403 if not, so a
+ * tampered value cannot reach data it should not.
+ */
+const ACTIVE_FARM_KEY = "semico.activeFarmId";
+
+function readStoredFarmId(): string | null {
+  try {
+    return window.localStorage.getItem(ACTIVE_FARM_KEY);
+  } catch {
+    // Private mode, or storage disabled. Falling back to the default farm is correct.
+    return null;
+  }
+}
+
+let activeFarmId: string | null = typeof window === "undefined" ? null : readStoredFarmId();
+const activeFarmListeners = new Set<() => void>();
+
+export function subscribeActiveFarmId(listener: () => void): () => void {
+  activeFarmListeners.add(listener);
+  return () => activeFarmListeners.delete(listener);
+}
+
+export function setActiveFarmId(farmId: string | null): void {
+  if (activeFarmId === farmId) return;
+  activeFarmId = farmId;
+  for (const listener of activeFarmListeners) listener();
+  try {
+    if (farmId) window.localStorage.setItem(ACTIVE_FARM_KEY, farmId);
+    else window.localStorage.removeItem(ACTIVE_FARM_KEY);
+  } catch {
+    // The in-memory value still works for this page's lifetime.
+  }
+}
+
+export function getActiveFarmId(): string | null {
+  return activeFarmId;
+}
+
+/**
+ * The header for a farm-scoped request.
+ *
+ * Only under `/farms/` — NOT on `/farms` itself, which is the collection (list/create) and takes no
+ * farm. Sending a stale id there would make creating a farm fail with a 403 about a farm the caller
+ * no longer holds.
+ */
+function farmHeader(path: string): Record<string, string> {
+  if (!activeFarmId || !path.startsWith("/farms/")) return {};
+  return { "X-Farm-Id": activeFarmId };
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -150,6 +205,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<A
         Accept: "application/json",
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...farmHeader(path),
         ...headers,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -201,6 +257,7 @@ export async function apiFetchBlob(path: string, accept = "text/csv"): Promise<B
     headers: {
       Accept: accept,
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...farmHeader(path),
     },
   });
 

@@ -1,20 +1,25 @@
 import { useState } from "react";
-import { Leaf, Cloud, CloudRain, Droplets, History, CheckCircle2 } from "lucide-react";
+import { useNavigate } from "react-router";
+import { Leaf, Cloud, CloudRain, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import { useChartWidth } from "../../hooks/useChartWidth";
-import { SvgLineChart } from "../SvgLineChart";
 import { LivingWaveGauge } from "../LivingWaveGauge";
 import { tok } from "../../theme/tokens";
 import { farmDateLabel } from "../../../lib/time";
-import { useActivityFeed } from "../../../features/activity/useActivity";
-import { useSystemHealth } from "../../../features/systemHealth/useSystemHealth";
+import { useSensors, useSystemHealth } from "../../../features/systemHealth/useSystemHealth";
+import { useWeather, weatherDescription } from "../../../features/dashboard/useWeather";
+import { useFarm } from "../../../features/farms/useFarms";
+import { useFarmSettings } from "../../../features/settings/useSettings";
+import { useRealtimeAlerts } from "../../../features/realtime/useRealtime";
+import { dashboardCriticalCount } from "../../../features/realtime/events";
+import { FarmMap } from "../../../features/map/FarmMap";
+import { toFarmMapData } from "../../../features/map/mapData";
 import {
   useIrrigate,
   useLatestTelemetry,
-  useMoistureSeries,
   useTodaySaving,
+  useZones,
 } from "../../../features/dashboard/useDashboard";
 
 /**
@@ -51,30 +56,29 @@ export function Dashboard() {
   const c = palette(isDark);
 
   const [duration, setDuration] = useState(10);
-  const [chartRef, chartWidth] = useChartWidth();
+  const navigate = useNavigate();
 
   const latest = useLatestTelemetry();
-  const series = useMoistureSeries({ interval: "day", range: "7d" });
   const saving = useTodaySaving();
   const health = useSystemHealth();
-  const feed = useActivityFeed({ pageSize: 20 });
+  const sensors = useSensors();
+  const zones = useZones();
+  const farm = useFarm();
+  const realtimeAlerts = useRealtimeAlerts(farm.data?.id);
+  const farmSettings = useFarmSettings(farm.data?.id);
+  const weather = useWeather(farm.data?.latitude, farm.data?.longitude);
   const irrigate = useIrrigate();
-
-  // The chart's axis labels come from the server, already bucketed in the farm timezone.
-  const weekData = (series.data ?? []).map((point) => ({
-    day: point.label,
-    moisture: point.rootMoisture,
-  }));
 
   const currentMoisture = latest.data?.rootMoisture ?? 0;
 
   const valveIsOpen = latest.data?.valveState === "OPEN";
   const valveLabel = valveIsOpen ? d.valveOpen : d.valveClosed;
 
-  // The most recent irrigation in the feed — an OPEN or a scheduled completion.
-  const lastIrrigation = (feed.data?.data ?? []).find(
-    (entry) => entry.kind === "VALVE_OPEN" || entry.kind === "SCHEDULED_IRRIGATION",
-  );
+  // ── Critical alerting ──────────────────────────────────────────────────────
+  const criticalCount = dashboardCriticalCount(realtimeAlerts.data, health.data, latest.data, zones.data);
+
+  // Both farm maps use the same live zone/sensor projection and cache-backed viewport.
+  const { zones: mapZones, sensors: mapSensors } = toFarmMapData(zones.data ?? [], sensors.data ?? []);
 
   function handleIrrigate() {
     irrigate.mutate(duration, {
@@ -98,6 +102,33 @@ export function Dashboard() {
 
   return (
     <div style={{ fontFamily: font, position: "relative" }}>
+      {/* ── Critical alert banner ─────────────────────────────────────────────
+          Non-dismissible and first in the document: a critical fault is the one thing on this page
+          a farmer must not scroll past. It routes to System Health, which is where the detail and
+          the remediation live. */}
+      {criticalCount > 0 && (
+        <button
+          type="button"
+          aria-live="assertive"
+          onClick={() => navigate("/dashboard/system-health")}
+          className="w-full flex items-center gap-3 rounded-lg px-4 py-3 mb-6 text-start transition-colors"
+          style={{
+            background: isDark ? "rgba(248,81,73,0.12)" : "#FEF2F2",
+            border: `1px solid ${isDark ? "#F85149" : "#FCA5A5"}`,
+            color: isDark ? "#FF7B72" : "#B91C1C",
+            fontFamily: font,
+          }}
+        >
+          <AlertTriangle size={18} strokeWidth={1.5} aria-hidden="true" />
+          <span className="text-[13px]" style={{ fontWeight: 500 }}>
+            {d.criticalBannerTitle} ({criticalCount})
+          </span>
+          <span className="text-[12px] ms-auto underline underline-offset-2">
+            {d.criticalBannerAction}
+          </span>
+        </button>
+      )}
+
       {/* ── Page Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-[22px]" style={{ fontWeight: 500, color: c.text }}>
@@ -109,6 +140,32 @@ export function Dashboard() {
           {farmDateLabel(new Date(), lang)}
         </span>
       </div>
+
+      {/* ── Live field map ────────────────────────────────────────────────── */}
+      <Card style={cardStyle} className="mb-6">
+        <h2 className="text-[16px] mb-4" style={{ fontWeight: 500, color: c.text }}>
+          {d.liveMap}
+        </h2>
+        {mapZones.length === 0 ? (
+          <p className="text-[12px] py-10 text-center" style={{ color: c.sec }}>
+            {d.mapNoZones}
+          </p>
+        ) : (
+          <FarmMap
+            zones={mapZones}
+            sensors={mapSensors}
+            height={380}
+            boundary={farm.data?.boundary ?? null}
+            center={farm.data?.latitude != null && farm.data.longitude != null
+              ? [farm.data.latitude, farm.data.longitude]
+              : undefined}
+            farmId={farm.data?.id}
+            landAreaHa={farm.data?.landAreaHa}
+            zoneCount={farmSettings.data?.zoneCount}
+            sensorsPerZone={farmSettings.data?.sensorsPerZone}
+          />
+        )}
+      </Card>
 
       {/* ── Two-column layout ─────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-[7fr_3fr] gap-6">
@@ -178,66 +235,6 @@ export function Dashboard() {
               </span>
             </Card>
           </div>
-
-          {/* ── 7-day Trend Chart ─────────────────────────── */}
-          <Card style={cardStyle}>
-            <h2 className="text-[16px] mb-6" style={{ fontWeight: 500, color: c.text }}>
-              {d.moistureTrend}
-            </h2>
-
-            <div ref={chartRef} style={{ width: "100%", height: 280 }}>
-              {series.isError && (
-                <p className="text-[12px]" style={{ color: c.crit }}>
-                  {series.error instanceof Error ? series.error.message : d.noReadings}
-                </p>
-              )}
-              {chartWidth > 0 && weekData.length > 0 && (
-                <SvgLineChart
-                  data={weekData}
-                  xKey="day"
-                  lines={[
-                    {
-                      dataKey: "moisture",
-                      color: c.green,
-                      areaFill: isDark ? "rgba(63,185,80,0.10)" : "rgba(0,168,89,0.08)",
-                    },
-                  ]}
-                  width={chartWidth}
-                  height={280}
-                  yDomain={[0, 100]}
-                  yTicks={[0, 25, 50, 75, 100]}
-                  xTickEvery={1}
-                  showGrid={false}
-                  refLines={[{ y: 40, stroke: c.crit, dash: "4 4" }]}
-                  tooltipLabels={{ moisture: "%" }}
-                  isDark={isDark}
-                />
-              )}
-              {!series.isLoading && !series.isError && weekData.length === 0 && (
-                <p className="text-[12px] py-16 text-center" style={{ color: c.sec }}>
-                  {d.noReadings}
-                </p>
-              )}
-            </div>
-
-            {/* Threshold legend */}
-            <div className="flex items-center gap-2 mt-3">
-              <svg width={24} height={10}>
-                <line
-                  x1={0}
-                  y1={5}
-                  x2={24}
-                  y2={5}
-                  stroke={c.crit}
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
-                />
-              </svg>
-              <span className="text-[11px]" style={{ fontFamily: "JetBrains Mono", color: c.crit }}>
-                {d.thresholdLabel}
-              </span>
-            </div>
-          </Card>
         </div>
 
         {/* ════════════════════════════════
@@ -253,23 +250,37 @@ export function Dashboard() {
               </h3>
             </div>
 
-            {/*
-              No forecast provider is integrated.
-              This card previously rendered "26°C / Partly cloudy / Rain expected tomorrow. No
-              irrigation needed." — all static strings from `translations.ts`, presented as a live
-              forecast. That is the most dangerous kind of placeholder on this screen: a farmer could
-              skip a watering on the strength of a prediction that came from a translation file.
-              Until a provider is wired in, the card says so instead of inventing weather.
-            */}
-            <div className="flex flex-col items-center justify-center gap-2 py-7 text-center">
-              <CloudRain size={28} strokeWidth={1.5} style={{ color: c.sec, opacity: 0.55 }} />
-              <p
-                className="text-[12px] max-w-[200px]"
-                style={{ fontFamily: font, color: c.sec, lineHeight: 1.5 }}
-              >
-                {d.weatherUnavailable}
-              </p>
-            </div>
+            {weather.data ? (
+              <div className="py-2" aria-live="polite">
+                <div className="flex items-center gap-3">
+                  <CloudRain size={28} strokeWidth={1.5} style={{ color: c.blue }} aria-hidden="true" />
+                  <div>
+                    <p className="text-[30px] leading-none" style={{ fontFamily: "JetBrains Mono", color: c.text }}>
+                      {Math.round(weather.data.temperatureC)}°C
+                    </p>
+                    <p className="text-[12px] mt-1" style={{ color: c.sec }}>
+                      {weatherDescription(weather.data.weatherCode)}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[11px] mt-3" style={{ color: c.sec }}>
+                  {d.weatherFeelsLike} {Math.round(weather.data.apparentTemperatureC)}°C · {d.weatherRain} {weather.data.precipitationMm} mm
+                </p>
+                <p className="text-[11px] mt-1" style={{ color: c.sec }}>
+                  {d.weatherHumidity} {Math.round(weather.data.humidityPct)}% · {d.weatherWind} {Math.round(weather.data.windSpeedKmh)} km/h
+                </p>
+                <p className="text-[10px] mt-3" style={{ fontFamily: "JetBrains Mono", color: c.sec }}>
+                  {d.weatherUpdated} {weather.data.time.replace("T", " ")}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 py-7 text-center" aria-live="polite">
+                <CloudRain size={28} strokeWidth={1.5} style={{ color: c.sec, opacity: 0.55 }} aria-hidden="true" />
+                <p className="text-[12px] max-w-[220px]" style={{ fontFamily: font, color: c.sec, lineHeight: 1.5 }}>
+                  {weather.isLoading ? d.weatherLoading : weather.isError ? d.weatherError : d.weatherUnavailable}
+                </p>
+              </div>
+            )}
 
             {/* Valve status — real, from the latest reading. */}
             <div className="pt-3" style={{ borderTop: `1px solid ${c.divider}` }}>
@@ -288,63 +299,6 @@ export function Dashboard() {
             </div>
           </Card>
 
-          {/* Card D — Last Activity */}
-          <Card style={cardStyle}>
-            <div className="flex items-center gap-2 mb-5">
-              <History size={16} strokeWidth={1.5} style={{ color: c.sec }} />
-              <h3 className="text-[14px]" style={{ fontWeight: 500, color: c.text }}>
-                {d.lastActivityTitle}
-              </h3>
-            </div>
-
-            {/* Last irrigation — from the activity feed, not a fixed string. */}
-            <div
-              className="flex items-start gap-3 py-3"
-              style={{ borderBottom: `1px solid ${c.divider}` }}
-            >
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: c.dropletBg }}
-              >
-                <Droplets size={15} strokeWidth={1.5} style={{ color: c.blue }} />
-              </div>
-              <div>
-                <p
-                  className="text-[13px] mb-0.5"
-                  style={{ color: c.text, fontFamily: font, fontWeight: 500 }}
-                >
-                  {d.lastIrrigationLabel}
-                </p>
-                <span className="text-[11px]" style={{ fontFamily: "JetBrains Mono", color: c.sec }}>
-                  {lastIrrigation ? farmDateLabel(new Date(lastIrrigation.occurredAt), lang) : d.noIrrigationYet}
-                </span>
-              </div>
-            </div>
-
-            {/* System check — derived from the diagnostic summary. */}
-            <div className="flex items-start gap-3 pt-3">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: c.checkBg }}
-              >
-                <CheckCircle2 size={15} strokeWidth={1.5} style={{ color: c.green }} />
-              </div>
-              <div>
-                <p
-                  className="text-[13px] mb-0.5"
-                  style={{ color: c.text, fontFamily: font, fontWeight: 500 }}
-                >
-                  {d.systemCheckLabel}
-                </p>
-                <span
-                  className="text-[11px]"
-                  style={{ fontFamily: font, color: health.data?.online ? c.green : c.warn }}
-                >
-                  {health.data?.online === false ? d.systemAttention : d.systemOnline}
-                </span>
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
 

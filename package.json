@@ -19,11 +19,13 @@
     "typecheck": "npm --workspace shared run typecheck && npm --workspace server run typecheck && npm --workspace client run typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "npm --workspace server run test",
+    "test": "npm --workspace server run test && npm --workspace client run test",
     "db:migrate": "npm --workspace server run db:migrate",
     "db:seed": "npm --workspace server run db:seed",
+    "db:seed:admin": "npm --workspace server run db:seed:admin",
     "db:reset": "npm --workspace server run db:reset",
     "db:studio": "npm --workspace server run db:studio",
+    "esp32:simulator": "npm --workspace server run esp32:simulator",
     "setup": "npm install && npm run db:migrate && npm run db:seed"
   },
   "devDependencies": {

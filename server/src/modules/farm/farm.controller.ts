@@ -1,9 +1,16 @@
 import type { Request } from "express";
-import { farmSettingsSchema, updateFarmSchema } from "@semico/shared";
+import {
+  createFarmSchema,
+  farmBoundarySchema,
+  farmSettingsSchema,
+  updateFarmSchema,
+  updateZoneSchema,
+  zoneInputSchema,
+} from "@semico/shared";
 import { ApiError } from "../../lib/ApiError.js";
 import { asyncHandler } from "../../lib/asyncHandler.js";
 import { ok } from "../../lib/response.js";
-import { parseBody } from "../../lib/validate.js";
+import { idParamSchema, parseBody } from "../../lib/validate.js";
 import { farmService } from "./farm.service.js";
 
 function authOf(req: Request) {
@@ -13,6 +20,19 @@ function authOf(req: Request) {
 
 export const farmController = {
   get: asyncHandler(async (req, res) => ok(res, await farmService.get(authOf(req)))),
+
+  /** The owner's farms, for the switcher. 201 on create, like every other resource creation. */
+  list: asyncHandler(async (req, res) => ok(res, await farmService.listMine(authOf(req)))),
+
+  create: asyncHandler(async (req, res) => {
+    const input = parseBody(req, createFarmSchema);
+    return res.status(201).json({ data: await farmService.create(authOf(req), input, req) });
+  }),
+
+  updateBoundary: asyncHandler(async (req, res) => {
+    const input = parseBody(req, farmBoundarySchema);
+    return ok(res, await farmService.updateBoundary(authOf(req), input, req));
+  }),
 
   update: asyncHandler(async (req, res) => {
     const input = parseBody(req, updateFarmSchema);
@@ -32,4 +52,15 @@ export const farmController = {
   ),
 
   listZones: asyncHandler(async (req, res) => ok(res, await farmService.listZones(authOf(req)))),
+
+  createZone: asyncHandler(async (req, res) => {
+    const input = parseBody(req, zoneInputSchema);
+    return res.status(201).json({ data: await farmService.createZone(authOf(req), input, req) });
+  }),
+
+  updateZone: asyncHandler(async (req, res) => {
+    const { id } = idParamSchema.parse(req.params);
+    const input = parseBody(req, updateZoneSchema);
+    return ok(res, await farmService.updateZone(authOf(req), id, input, req));
+  }),
 };

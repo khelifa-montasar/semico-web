@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth.js";
+import { requireSuperAdmin } from "../middleware/rbac.js";
+import { adminRoutes } from "../modules/admin/admin.routes.js";
 import { authRoutes } from "../modules/auth/auth.routes.js";
 import { contentRoutes } from "../modules/content/content.routes.js";
 import { farmRoutes } from "../modules/farm/farm.routes.js";
@@ -12,6 +15,7 @@ import { usersRoutes } from "../modules/users/users.routes.js";
 import { bookingsRoutes } from "../modules/bookings/bookings.routes.js";
 import { leadsRoutes } from "../modules/leads/leads.routes.js";
 import { referenceRoutes } from "../modules/reference/reference.routes.js";
+import { realtimeRoutes } from "../modules/realtime/realtime.routes.js";
 
 /**
  * The versioned API surface.
@@ -32,6 +36,11 @@ apiRouter.get("/health", (_req, res) => {
   res.json({ data: { status: "ok", version: "v1" } });
 });
 
+// Guard every method and nested admin path, including endpoints added in later phases.
+// This namespace is exclusive to platform admins and has no farm membership requirement.
+apiRouter.use("/admin", requireAuth, requireSuperAdmin);
+apiRouter.use("/admin", adminRoutes);
+
 apiRouter.use("/auth", authRoutes);
 apiRouter.use("/content", contentRoutes);
 apiRouter.use("/reference", referenceRoutes);
@@ -40,6 +49,7 @@ apiRouter.use("/leads", leadsRoutes);
 apiRouter.use("/users", usersRoutes);
 
 apiRouter.use("/farms/me", telemetryRoutes);
+apiRouter.use("/farms/me", realtimeRoutes);
 apiRouter.use("/farms/me", activityRoutes);
 apiRouter.use("/farms/me", irrigationRoutes);
 apiRouter.use("/farms/me", analyticsRoutes);

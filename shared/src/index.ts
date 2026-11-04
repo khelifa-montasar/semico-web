@@ -14,11 +14,15 @@ export * from "./enums.js";
 export * from "./api.js";
 
 export * from "./domain/auth.js";
+export * from "./domain/admin.js";
+export * from "./domain/cms.js";
 export * from "./domain/user.js";
 export * from "./domain/farm.js";
 export * from "./domain/telemetry.js";
+export * from "./domain/realtime.js";
 export * from "./domain/activity.js";
 export * from "./domain/irrigation.js";
+export * from "./domain/valveMqtt.js";
 export * from "./domain/analytics.js";
 export * from "./domain/booking.js";
 export * from "./domain/lead.js";

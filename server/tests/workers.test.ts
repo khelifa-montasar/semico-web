@@ -15,7 +15,7 @@ import {
  *
  * The theme throughout: role (OWNER vs WORKER) gates administration, while the valve capability is
  * a separate, revocable thing. An operator with valve control still cannot invite people; a
- * demoted observer cannot keep a capability their new role does not have.
+ * demoted engineer cannot keep a capability their new role does not have.
  */
 
 beforeEach(resetDatabase);
@@ -112,20 +112,20 @@ describe("invite", () => {
       .expect(200);
   });
 
-  it("honours grantValve for an operator but ignores it for an observer", async () => {
+  it("honours grantValve for an operator but ignores it for an engineer", async () => {
     const owner = await registerOwner();
 
     const operator = await invite(owner, { type: "OPERATOR", grantValve: true });
     expect(operator.worker.valveControl).toBe(true);
 
-    // An observer can never hold the capability, so the flag is dropped rather than stored.
-    const observer = await invite(owner, { type: "OBSERVER", grantValve: true });
-    expect(observer.worker.valveControl).toBe(false);
+    // An engineer can never hold the capability, so the flag is dropped rather than stored.
+    const engineer = await invite(owner, { type: "ENGINEER", grantValve: true });
+    expect(engineer.worker.valveControl).toBe(false);
   });
 
   it("rejects an email that is already registered", async () => {
     const owner = await registerOwner();
-    const existing = await registerWorker(owner.ownerCode, "OBSERVER");
+    const existing = await registerWorker(owner.ownerCode, "ENGINEER");
 
     const response = await request(testApp())
       .post("/api/v1/farms/me/workers/invite")
@@ -218,12 +218,12 @@ describe("valve control grant and revoke", () => {
     expect(audit.actorId).toBe(owner.userId);
   });
 
-  it("refuses to grant valve control to an observer", async () => {
+  it("refuses to grant valve control to an engineer", async () => {
     const owner = await registerOwner();
-    const observer = await registerWorker(owner.ownerCode, "OBSERVER");
+    const engineer = await registerWorker(owner.ownerCode, "ENGINEER");
 
     const response = await request(testApp())
-      .patch(`/api/v1/farms/me/workers/${observer.userId}/valve-control`)
+      .patch(`/api/v1/farms/me/workers/${engineer.userId}/valve-control`)
       .set(auth(owner.accessToken))
       .send({ granted: true })
       .expect(400);
@@ -250,7 +250,7 @@ describe("valve control grant and revoke", () => {
 });
 
 describe("demotion drops the capability", () => {
-  it("clears valve control when an operator becomes an observer", async () => {
+  it("clears valve control when an operator becomes an engineer", async () => {
     const owner = await registerOwner();
     const operator = await registerWorker(owner.ownerCode, "OPERATOR");
     await prisma.user.update({ where: { id: operator.userId }, data: { valveControl: true } });
@@ -258,22 +258,22 @@ describe("demotion drops the capability", () => {
     const response = await request(testApp())
       .patch(`/api/v1/farms/me/workers/${operator.userId}`)
       .set(auth(owner.accessToken))
-      .send({ type: "OBSERVER" })
+      .send({ type: "ENGINEER" })
       .expect(200);
 
-    expect(response.body.data).toMatchObject({ type: "OBSERVER", valveControl: false });
+    expect(response.body.data).toMatchObject({ type: "ENGINEER", valveControl: false });
 
     const audit = await prisma.auditLog.findFirstOrThrow({
       where: { action: "PERMISSION_REVOKE", entityId: operator.userId },
     });
-    expect(JSON.parse(audit.metadata ?? "{}")).toMatchObject({ reason: "demoted to observer" });
+    expect(JSON.parse(audit.metadata ?? "{}")).toMatchObject({ reason: "demoted to engineer" });
   });
 });
 
 describe("reset password", () => {
   it("issues a working password and ends existing sessions", async () => {
     const owner = await registerOwner();
-    const worker = await registerWorker(owner.ownerCode, "OBSERVER");
+    const worker = await registerWorker(owner.ownerCode, "ENGINEER");
 
     // The worker has a live session.
     await request(testApp())
@@ -381,13 +381,13 @@ describe("only the owner may manage workers", () => {
       .expect(403);
   });
 
-  it("refuses an observer", async () => {
+  it("refuses an engineer", async () => {
     const owner = await registerOwner();
-    const observer = await registerWorker(owner.ownerCode, "OBSERVER");
+    const engineer = await registerWorker(owner.ownerCode, "ENGINEER");
 
     await request(testApp())
       .get("/api/v1/farms/me/workers")
-      .set(auth(observer.accessToken))
+      .set(auth(engineer.accessToken))
       .expect(403);
   });
 });

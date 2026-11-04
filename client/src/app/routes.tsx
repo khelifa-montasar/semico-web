@@ -1,8 +1,11 @@
 import { lazy } from "react";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { PublicLayout } from "./components/PublicLayout";
 import { DashboardLayout } from "./components/DashboardLayout";
+import { AdminLayout } from "./components/AdminLayout";
 import { RequireAuth } from "@/features/auth/RequireAuth";
+import { RequireDiagnosticsRoute } from "@/features/auth/RequireDiagnosticsRoute";
+import { RequireSuperAdmin } from "@/features/auth/RequireSuperAdmin";
 
 /**
  * Routes.
@@ -33,6 +36,21 @@ const Login = lazy(() => import("./components/pages/Login").then((m) => ({ defau
 const Dashboard = lazy(() =>
   import("./components/pages/Dashboard").then((m) => ({ default: m.Dashboard })),
 );
+const AdminDashboard = lazy(() =>
+  import("./components/pages/AdminDashboard").then((m) => ({ default: m.AdminDashboard })),
+);
+const AdminPricing = lazy(() =>
+  import("./components/pages/AdminPricing").then((module) => ({ default: module.AdminPricing })),
+);
+const AdminBlog = lazy(() =>
+  import("./components/pages/AdminBlog").then((module) => ({ default: module.AdminBlog })),
+);
+const AdminFarms = lazy(() =>
+  import("./components/pages/AdminFarms").then((module) => ({ default: module.AdminFarms })),
+);
+const AdminUsers = lazy(() =>
+  import("./components/pages/AdminUsers").then((module) => ({ default: module.AdminUsers })),
+);
 const SystemHealth = lazy(() =>
   import("./components/pages/SystemHealth").then((m) => ({ default: m.SystemHealth })),
 );
@@ -45,8 +63,27 @@ const Analytics = lazy(() =>
 const Settings = lazy(() =>
   import("./components/pages/Settings").then((m) => ({ default: m.Settings })),
 );
+const TechnicalDiagnostics = lazy(() =>
+  import("./components/pages/TechnicalDiagnostics").then((m) => ({ default: m.TechnicalDiagnostics })),
+);
 
 export const router = createBrowserRouter([
+  {
+    path: "/admin",
+    Component: RequireSuperAdmin,
+    children: [{
+      Component: AdminLayout,
+      children: [
+        { index: true, element: <Navigate to="/admin/dashboard" replace /> },
+        { path: "dashboard", Component: AdminDashboard },
+        { path: "pricing", Component: AdminPricing },
+        { path: "blog", Component: AdminBlog },
+        { path: "farms", Component: AdminFarms },
+        { path: "users", Component: AdminUsers },
+        { path: "*", element: <Navigate to="/admin/dashboard" replace /> },
+      ],
+    }],
+  },
   {
     path: "/",
     Component: PublicLayout,
@@ -71,6 +108,12 @@ export const router = createBrowserRouter([
           { path: "activity", Component: Activity },
           { path: "analytics", Component: Analytics },
           { path: "settings", Component: Settings },
+          {
+            // Owner and engineer. The guard is a ROUTE (not the link visibility), so an operator
+            // who types the URL is redirected rather than shown a blank page.
+            Component: RequireDiagnosticsRoute,
+            children: [{ path: "diagnostics", Component: TechnicalDiagnostics }],
+          },
         ],
       },
     ],

@@ -7,5 +7,5 @@
       "@semico/shared": ["../shared/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "prisma/**/*.ts", "tests/**/*.ts", "*.config.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "prisma/**/*.ts", "tests/**/*.ts", "*.config.ts"]
 }

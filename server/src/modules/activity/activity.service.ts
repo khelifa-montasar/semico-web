@@ -17,7 +17,7 @@ import type { PaginationMeta } from "@semico/shared";
  * The farmer-facing activity feed.
  *
  * Distinct from the security audit: this is bilingual, farm-scoped and readable by every member
- * including observers. The audit trail (actor + ip + user agent) is owner-only and lives in the
+ * including engineers. The audit trail (actor + ip + user agent) is owner-only and lives in the
  * audit module.
  */
 

@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "./AuthContext";
 import { SemicoLogo } from "@/app/components/SemicoLogo";
+import { canAccessAdmin } from "./permissions";
 
 /**
  * Route guard for the dashboard.
@@ -19,7 +20,7 @@ function SessionLoading() {
 }
 
 export function RequireAuth() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const location = useLocation();
 
   if (status === "loading") return <SessionLoading />;
@@ -29,6 +30,7 @@ export function RequireAuth() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
+  if (canAccessAdmin(user)) return <Navigate to="/admin/dashboard" replace />;
   return <Outlet />;
 }
 

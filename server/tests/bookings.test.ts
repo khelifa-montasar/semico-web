@@ -226,7 +226,7 @@ describe("owner-side management", () => {
 
   it("refuses a worker — this is not farm-scoped administration", async () => {
     const owner = await registerOwner();
-    const worker = await registerWorker(owner.ownerCode, "OBSERVER");
+    const worker = await registerWorker(owner.ownerCode, "ENGINEER");
 
     await request(testApp())
       .get("/api/v1/bookings")

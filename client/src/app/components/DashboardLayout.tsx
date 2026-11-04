@@ -6,6 +6,7 @@ import {
   HeartPulse,
   BarChart3,
   Settings,
+  Sprout,
   LogOut,
   MessageCircle,
   Droplets,
@@ -16,11 +17,14 @@ import { useTokens } from "../hooks/useTokens";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { RouteFallback } from "./RouteFallback";
 import { useAuth } from "@/features/auth/AuthContext";
+import { canAccessDiagnostics } from "@/features/auth/permissions";
+import { useRealtime } from "@/features/realtime/useRealtime";
 
 export function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const realtimeState = useRealtime();
   const [chatOpen, setChatOpen] = useState(false);
   const { t, isRTL, font } = useLanguage();
 
@@ -33,6 +37,12 @@ export function DashboardLayout() {
     { to: "/dashboard/system-health", icon: HeartPulse, label: t.sidebar.systemHealth },
     { to: "/dashboard/activity", icon: Activity, label: t.sidebar.activity },
     { to: "/dashboard/analytics", icon: BarChart3, label: t.sidebar.analytics },
+    // Owner and engineer only. Hiding the link is convenience, not access control — the route
+    // itself is wrapped in `RequireDiagnosticsRoute`, so an operator who types the URL is
+    // redirected either way.
+    ...(canAccessDiagnostics(user)
+      ? [{ to: "/dashboard/diagnostics", icon: Sprout, label: t.sidebar.demoPlot }]
+      : []),
     { to: "/dashboard/settings", icon: Settings, label: t.sidebar.settings },
   ];
 
@@ -54,7 +64,7 @@ export function DashboardLayout() {
     >
       {/* ── Desktop Sidebar ────────────────────────────────────────────── */}
       <aside
-        className="hidden md:flex flex-col w-[240px] shrink-0 h-screen sticky top-0"
+        className="hidden md:flex flex-col w-[240px] shrink-0 h-screen sticky top-0 overflow-y-auto z-40"
         style={{
           background: c.sidebarBg,
           borderInlineEnd: `1px solid ${c.border}`,
@@ -139,9 +149,9 @@ export function DashboardLayout() {
       </div>
 
       {/* ── Main content ───────────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0" style={{ background: c.contentBg }}>
+      <div className="relative z-0 flex-1 min-w-0 overflow-x-clip" style={{ background: c.contentBg }}>
         <header
-          className="h-[72px] flex items-center px-6 md:px-8 sticky top-0 z-40"
+          className="h-[72px] flex items-center px-6 md:px-8 sticky top-0 z-30"
           style={{
             background: c.headerBg,
             borderBottom: `1px solid ${c.border}`,
@@ -154,6 +164,16 @@ export function DashboardLayout() {
             {currentTitle}
           </h2>
           <div className="ms-auto flex items-center gap-4">
+            <span
+              className="inline-flex items-center gap-2 text-[12px]"
+              style={{ color: realtimeState === "connected" ? c.green : c.textSec }}
+              aria-live="polite"
+              aria-label={`Live updates ${realtimeState}`}
+              title={`Live updates ${realtimeState}`}
+            >
+              <span aria-hidden="true">●</span>
+              {realtimeState === "connected" ? "Live" : realtimeState === "disconnected" ? "Offline" : "Connecting"}
+            </span>
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[12px]"
               style={{ background: c.avatarBg, fontWeight: 500, fontFamily: "JetBrains Mono" }}

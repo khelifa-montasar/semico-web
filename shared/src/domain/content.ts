@@ -47,6 +47,15 @@ export interface ServicePlan {
   sortOrder: number;
 }
 
+export interface PricingPlan {
+  id: string;
+  name: Localized;
+  price: number;
+  currency: string;
+  features: Localized[];
+  isActive: boolean;
+}
+
 export interface TeamMember {
   id: string;
   initials: string;

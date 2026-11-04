@@ -190,3 +190,50 @@
   direction: ltr;
   unicode-bidi: embed;
 }
+
+/*
+ * Reduced motion.
+ *
+ * A global opt-out rather than a rule per component, so an animation added later is covered by
+ * default instead of being missed. Nothing here carries information that only motion conveys: the
+ * loading spinner keeps its role="status" label, and the transitions are decorative.
+ *
+ * The duration is a hair rather than zero because some engines never fire animationend on a zero
+ * duration, which would leave listeners waiting forever.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Print: only the report.
+ *
+ * The Analytics export renders its report into #print-report and calls window.print(). Everything
+ * else is hidden with `visibility` rather than `display` so the report can be positioned at the top
+ * of the printed page without depending on the surrounding layout — `display: none` on an ancestor
+ * would take the report with it.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #print-report,
+  #print-report * {
+    visibility: visible;
+  }
+
+  #print-report {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    width: 100%;
+  }
+}

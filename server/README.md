@@ -22,11 +22,108 @@ npm run dev               # tsx watch on http://localhost:4000
 | `test` / `test:watch` | vitest + supertest |
 | `db:migrate` / `db:deploy` | Create a migration / apply migrations in production |
 | `db:seed` | Seed demo data |
+| `db:seed:admin` | Provision a super admin without replacing existing data |
 | `db:reset` | Drop, re-migrate, re-seed |
 | `db:studio` | Prisma Studio |
 
 Health endpoints: `GET /healthz` (liveness, never touches the database) and `GET /readyz`
 (readiness, checks the database).
+
+## First platform administrator
+
+Apply migrations with `npm run db:deploy`, then set `SUPER_ADMIN_PASSWORD` in `server/.env`
+(8–200 characters) and run `npm run db:seed:admin` from the repository root or this workspace.
+`SUPER_ADMIN_EMAIL` defaults to `admin@semico.dz` and `SUPER_ADMIN_NAME` to `Platform Admin`.
+The script is `prisma/seed-super-admin.ts`; it creates an active `SUPER_ADMIN` with no farm,
+worker type, or valve permission. Re-running preserves the existing password and account status.
+It refuses to promote an existing owner or worker that uses the same email.
+
+Public signup accepts only `OWNER` and `WORKER`. All `/api/v1/admin/*` requests require an active
+`SUPER_ADMIN`; owners receive 403. Farm roles and capabilities remain separate from platform access.
+The dedicated portal is at `/admin/dashboard`; `/admin` redirects there. Other signed-in roles
+are redirected to `/dashboard`, while super admins are directed to their portal after login.
+
+`GET /api/v1/admin/stats` returns `totalFarms`, `totalUsers`, `totalActiveMqttDevices`, and the five
+newest `recentFarms` with owner name/email. Farm and user totals include every status.
+Active MQTT devices are unique registered devices whose valid telemetry or valve acknowledgement
+was accepted within the last 120 seconds. Activity is observed in the running API process and
+starts at zero after a restart until devices report again. It is not inferred from demo device
+flags. The dashboard refreshes every 30 seconds and supports English and Arabic.
+
+## Content & pricing management
+
+The `/admin/pricing` and `/admin/blog` screens are restricted to active super admins. They provide
+English/Arabic editors, paginated lists, validation, and confirmation before permanent deletion.
+Pricing status controls visibility on `/services`; blog posts default to private drafts.
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/v1/admin/pricing` | All plans, including inactive plans |
+| `GET /api/v1/admin/pricing/:id` | One plan |
+| `POST /api/v1/admin/pricing` | Create a plan |
+| `PATCH /api/v1/admin/pricing/:id` | Edit a plan or toggle `isActive` |
+| `DELETE /api/v1/admin/pricing/:id` | Permanently delete a plan |
+| `GET /api/v1/admin/blog` | All published posts and drafts, including editable bodies |
+| `GET /api/v1/admin/blog/:id` | One post, including drafts |
+| `POST /api/v1/admin/blog` | Create a bilingual post; defaults to a draft |
+| `PATCH /api/v1/admin/blog/:id` | Edit or publish/unpublish a post |
+| `DELETE /api/v1/admin/blog/:id` | Permanently delete a post |
+| `GET /api/v1/content/pricing-plans` | Public active plans, ordered by price |
+
+Admin list responses use the usual `data`/`meta` envelope. `page` defaults to 1 and `pageSize` to 20
+(maximum 100). Admin reads are private and non-cacheable. Unknown IDs return 404; duplicate blog
+slugs return 409. Owners and workers cannot access any of these admin endpoints.
+
+Plan inputs use `nameEn`, `nameAr`, a nonnegative numeric `price`, a three-letter `currency`
+(default `DZD`), `features: [{ en, ar }]` (default empty), and `isActive` (default true).
+Feature pairs are validated and stored in `PricingPlan.featuresJson`; responses expose parsed
+features and `name: { en, ar }`. The services page renders these values directly, including free
+plans, and retains a separate consultation action for tailored solutions.
+
+Blog inputs require `slug`, `titleEn`, `titleAr`, `bodyEn`, and `bodyAr`. Optional fields include
+`excerptEn`, `excerptAr`, `category` (`TECHNOLOGY`/`GUIDES`), ISO `publishedAt`, `published`, an
+HTTP(S) `coverImageUrl`, and nonnegative integer `sortOrder`. The UI edits publish dates in UTC.
+Public blog reads continue to exclude drafts, even when accessed directly by slug.
+
+The demo seed now populates two active pricing plans. It remains a destructive demo reset; use
+the CMS to add production plans without resetting data. No additional migration beyond Phase 1
+is needed. Legacy `ServicePlan` APIs remain available for compatibility, but `/services` no longer
+uses them. CMS mutations invalidate both admin lists and affected public query caches.
+
+## Farms & users oversight
+
+Active super admins manage all farms at `/admin/farms` and all accounts at `/admin/users`.
+Both lists are paginated (`page=1`, `pageSize=20`, maximum 100), private/non-cacheable, and return
+only selected fields: no password hashes, refresh tokens, or farm join codes.
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/v1/admin/farms` | Every farm, status, owner name/email, and worker count |
+| `PATCH /api/v1/admin/farms/:id/status` | Set `status` to `ACTIVE` or `SUSPENDED` |
+| `GET /api/v1/admin/users` | Every account, role/status, worker type, and farm associations |
+| `PATCH /api/v1/admin/users/:id/status` | Set `status` to `ACTIVE` or `DISABLED` |
+
+Suspension blocks farm-scoped reads, writes, exports, ticket issuance, and new worker signups.
+Owners can still access their profiles, list their farms, and select another active farm.
+Resuming restores access without deleting data or changing device/valve state. Device telemetry
+collection is not stopped by an access suspension.
+
+Disabling an account sets its platform-level lock and revokes refresh sessions, pending realtime
+tickets, and live sockets. Owners cannot override the lock by reactivating an invited/disabled
+worker; offboarding preserves it. Login and REST/realtime authorization check the lock as well as
+the legacy status. Enabling clears the lock without changing roles, membership, or valve grants;
+it may also activate a pending invitation. Account disables do not automatically suspend farms
+or other farm members. Existing revoked refresh tokens remain revoked after re-enabling.
+
+Status changes are audited transactionally as `ADMIN_FARM_STATUS_CHANGED` and
+`ADMIN_USER_STATUS_CHANGED`. The current admin cannot disable their own account, and status
+transactions preserve at least one active super admin. Both UI actions require confirmation.
+
+Before launching this version, apply all pending migrations with
+`npm --workspace server run db:deploy` from the repository root. The Phase 4 migration adds
+`User.platformDisabled` with a false default, preserving existing accounts and tenant-managed
+disables. No production/development database reset is required. After dependency installation or
+schema changes, generate the client with `npm --workspace server run db:generate`.
 
 ## Environment
 
@@ -46,6 +143,10 @@ readable message rather than surfacing as an `undefined` deep inside a request.
 | `REFRESH_TOKEN_TTL_SECONDS` | `2592000` | 30 days |
 | `COOKIE_SECURE` | `false` | set `true` only behind HTTPS |
 | `COOKIE_DOMAIN` | unset | |
+| `MQTT_URL` | unset | Optional; `mqtts://` required in production; unset disables the gateway |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | unset | Optional paired server MQTT credentials (telemetry/ACK subscribe, command publish) |
+| `MQTT_TOPIC_PREFIX` | `semico/v1/devices` | Telemetry/ACK subscriptions and valve-command topics use this prefix |
+| `MQTT_DEVICE_REGISTRY` | `{}` | JSON device ID → server-owned farm/zone mapping; required when MQTT_URL is set |
 
 ---
 

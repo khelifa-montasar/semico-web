@@ -1,5 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import { ERROR_CODES, type Role, type UserStatus, type WorkerType } from "@semico/shared";
+import { ERROR_CODES, ROLES, type FarmStatus, type Role, type UserStatus, type WorkerType } from "@semico/shared";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../lib/ApiError.js";
 import { verifyAccessToken } from "../lib/tokens.js";
@@ -47,12 +47,15 @@ export const requireAuth: RequestHandler = async (
         workerType: true,
         valveControl: true,
         status: true,
+        platformDisabled: true,
         farmId: true,
         // Both directions of the farm link are needed. `farm` is the worker side of the join;
-        // `ownedFarm` is how an OWNER is attached. Selecting only `farm` leaves every owner with a
+        // `ownedFarms` is how an OWNER is attached. Selecting only `farm` leaves every owner with a
         // null farmId and 403s them on every /farms/me/* route.
-        farm: { select: { id: true, name: true } },
-        ownedFarm: { select: { id: true, name: true } },
+        farm: { select: { id: true, name: true, status: true } },
+        // Ordered so "the owner's active farm" is deterministic rather than whichever row the
+        // database happened to return first.
+        ownedFarms: { select: { id: true, name: true, status: true }, orderBy: { createdAt: "asc" } },
       },
     });
 
@@ -61,22 +64,53 @@ export const requireAuth: RequestHandler = async (
       throw ApiError.unauthorized("Your account is no longer available", ERROR_CODES.TOKEN_INVALID);
     }
 
-    if (user.status === "DISABLED") {
+    if (user.status === "DISABLED" || user.platformDisabled) {
       throw ApiError.forbidden("This account has been disabled");
     }
 
-    // An owner's farm comes from `ownedFarm`; a worker's from `farm`. Resolving both here is what
-    // lets every downstream guard treat the two roles identically.
-    const farm = user.farm ?? user.ownedFarm ?? null;
+    if (!(ROLES as readonly string[]).includes(user.role)) {
+      throw ApiError.forbidden("This account has an unrecognized role");
+    }
+
+    // Resolve the ACTIVE farm for this request.
+    //
+    // An owner may hold up to three farms, so `/farms/me/*` needs to know which one it is acting on.
+    // `X-Farm-Id` selects it; without the header the owner's oldest farm is used, which keeps every
+    // existing single-farm client working unchanged. A worker has exactly one farm and cannot
+    // select another — naming a farm they are not attached to is refused rather than ignored, so a
+    // stale client cannot silently write to the wrong farm.
+    const requestedFarmId = req.header("x-farm-id")?.trim() || null;
+
+    let farm = user.farm ?? null;
+
+    if (user.role === "SUPER_ADMIN") {
+      // Platform requests are independent of the client's selected farm header.
+      farm = null;
+    } else if (user.role === "OWNER") {
+      const owned = user.ownedFarms ?? [];
+
+      if (requestedFarmId) {
+        const selected = owned.find((candidate) => candidate.id === requestedFarmId);
+        if (!selected) {
+          throw ApiError.forbidden("You do not own that farm");
+        }
+        farm = selected;
+      } else {
+        farm = owned[0] ?? null;
+      }
+    } else if (requestedFarmId && requestedFarmId !== user.farm?.id) {
+      throw ApiError.forbidden("You are not attached to that farm");
+    }
 
     req.auth = {
       userId: user.id,
       role: user.role as Role,
-      workerType: (user.workerType as WorkerType | null) ?? null,
-      valveControl: user.valveControl,
+      workerType: user.role === "SUPER_ADMIN" ? null : (user.workerType as WorkerType | null) ?? null,
+      valveControl: user.role === "SUPER_ADMIN" ? false : user.valveControl,
       status: user.status as UserStatus,
-      farmId: farm?.id ?? user.farmId ?? null,
+      farmId: user.role === "SUPER_ADMIN" ? null : farm?.id ?? user.farmId ?? null,
       farmName: farm?.name ?? null,
+      farmStatus: (farm?.status as FarmStatus | undefined) ?? null,
       email: user.email,
       fullName: user.fullName,
     };

@@ -126,12 +126,14 @@ export const authService = {
       });
     }
 
+    if (farm.status !== "ACTIVE") throw ApiError.forbidden("This farm has been suspended");
+
     const worker = await authRepository.createWorker({
       email: input.email,
       passwordHash,
       fullName: input.fullName,
       farmId: farm.id,
-      workerType: input.workerType ?? "OBSERVER",
+      workerType: input.workerType ?? "ENGINEER",
     });
 
     await prisma.$transaction(async (tx) => {
@@ -143,7 +145,7 @@ export const authService = {
           action: "REGISTER",
           entityType: "USER",
           entityId: worker.id,
-          metadata: { role: "WORKER", workerType: input.workerType ?? "OBSERVER" },
+          metadata: { role: "WORKER", workerType: input.workerType ?? "ENGINEER" },
         },
         req,
       );
@@ -178,7 +180,7 @@ export const authService = {
       throw ApiError.unauthorized("Incorrect email or password", ERROR_CODES.INVALID_CREDENTIALS);
     }
 
-    if (account.status === "DISABLED") {
+    if (account.status === "DISABLED" || account.platformDisabled) {
       throw ApiError.forbidden("This account has been disabled");
     }
 
@@ -249,7 +251,7 @@ export const authService = {
       throw ApiError.unauthorized("Your session has expired", ERROR_CODES.TOKEN_EXPIRED);
     }
 
-    if (stored.user.status === "DISABLED") {
+    if (stored.user.status === "DISABLED" || stored.user.platformDisabled) {
       await authRepository.revokeFamily(stored.familyId);
       throw ApiError.forbidden("This account has been disabled");
     }

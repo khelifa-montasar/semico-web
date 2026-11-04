@@ -9,6 +9,9 @@ import { api, qs } from "../lib/api/http";
 export interface RangeParams {
   range?: "24h" | "7d" | "30d" | "90d";
   zoneId?: string;
+  /** Explicit window (ISO). Overrides `range` when given — backs the From/To picker. */
+  from?: string;
+  to?: string;
 }
 
 /**

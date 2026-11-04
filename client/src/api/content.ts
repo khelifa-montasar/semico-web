@@ -3,6 +3,7 @@ import type {
   BlogPostSummary,
   ContentBundle,
   Product,
+  PricingPlan,
   ServicePlan,
   Stat,
   TeamMember,
@@ -28,6 +29,7 @@ export const contentApi = {
 
   products: () => api.get<Product[]>("/content/products"),
   servicePlans: () => api.get<ServicePlan[]>("/content/service-plans"),
+  pricingPlans: () => api.get<PricingPlan[]>("/content/pricing-plans"),
   team: () => api.get<TeamMember[]>("/content/team"),
   stats: () => api.get<Stat[]>("/content/stats"),
   testimonials: () => api.get<Testimonial[]>("/content/testimonials"),

@@ -26,10 +26,11 @@ model User {
   email        String  @unique
   passwordHash String
   fullName     String
-  role         String // OWNER | WORKER
-  workerType   String? // OPERATOR | OBSERVER — null for owners. A capability modifier, not a role.
+  role         String // OWNER | WORKER | SUPER_ADMIN
+  workerType   String? // OPERATOR | ENGINEER — null for owners and super admins.
   valveControl Boolean @default(false) // revocable; operators only
   status       String  @default("ACTIVE") // ACTIVE | INVITED | DISABLED
+  platformDisabled Boolean @default(false)
   phone        String?
   avatarUrl    String?
   bio          String? // max 500, enforced by zod
@@ -37,11 +38,14 @@ model User {
   wilaya       Wilaya? @relation(fields: [wilayaId], references: [code])
   commune      String?
 
-  // A worker belongs to one farm. An owner's farm points back via Farm.ownerId.
+  // A worker belongs to exactly one farm; the farm's owner is reached through it. An owner's farms
+  // point back via Farm.ownerId (one-to-many since V2 — an owner may hold up to three).
+  // A SUPER_ADMIN has no farm membership or owned farms.
   farmId String?
   farm   Farm?   @relation("FarmWorkers", fields: [farmId], references: [id])
 
-  ownedFarm Farm? @relation("FarmOwner")
+  // An owner may hold up to three farms (enforced in the API). A worker belongs to exactly one.
+  ownedFarms Farm[] @relation("FarmOwner")
 
   experiences   Experience[]
   educations    Education[]
@@ -60,13 +64,20 @@ model User {
 model Farm {
   id         String  @id @default(cuid())
   name       String
+  status     String  @default("ACTIVE") // ACTIVE | SUSPENDED
   ownerCode  String  @unique // "XXXX-XXXX" — what workers type to join. Owner-visible only.
   wilayaId   String?
   wilaya     Wilaya? @relation(fields: [wilayaId], references: [code])
   commune    String?
   landAreaHa Float?
+  /// The outline the owner drew on the map, as a JSON array of [lat, lng] pairs. Null until they
+  /// do — the map falls back to a generated grid, so "not drawn yet" is a valid state rather than a
+  /// missing one.
+  boundaryJson String?
+  latitude     Float?
+  longitude    Float?
 
-  ownerId String @unique
+  ownerId String
   owner   User   @relation("FarmOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   workers User[] @relation("FarmWorkers")
@@ -79,9 +90,12 @@ model Farm {
   errorLogs    ErrorLog[]
   activity     ActivityLog[]
   commands     IrrigationCommand[]
+  sensors      Sensor[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
 }
 
 model FarmSettings {
@@ -92,6 +106,8 @@ model FarmSettings {
   autoIrrigation    Boolean @default(true)
   pushNotifications Boolean @default(true)
   timezone          String  @default("Africa/Algiers")
+  zoneCount         Int     @default(3)
+  sensorsPerZone    Int     @default(2)
   updatedAt         DateTime @updatedAt
 }
 
@@ -151,8 +167,33 @@ model Zone {
   telemetry Telemetry[]
   commands  IrrigationCommand[]
   activity  ActivityLog[]
+  sensors   Sensor[]
+  errorLogs ErrorLog[]
 
   @@index([farmId])
+}
+
+/// A physical sensor in a zone.
+///
+/// Separate from SystemComponent, which describes farm-level hardware (controller, gateway) as a
+/// handful of diagnostic cards. A farm has dozens of sensors, they belong to a zone, and System
+/// Health groups them that way — so they need their own entity rather than being crammed into the
+/// component list, which has one row per KIND of hardware.
+model Sensor {
+  id         String   @id @default(cuid())
+  farmId     String
+  farm       Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zoneId     String
+  zone       Zone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  /// Stable identifier shown in the UI and in the error log's Location column, e.g. "Z1-S3".
+  key        String
+  connection String   @default("ONLINE") // ONLINE | OFFLINE
+  lastSeenAt DateTime
+  batteryPct Int?
+  sortOrder  Int      @default(0)
+
+  @@unique([farmId, key])
+  @@index([farmId, zoneId])
 }
 
 model Telemetry {
@@ -162,6 +203,7 @@ model Telemetry {
   zoneId          String?
   zone            Zone?    @relation(fields: [zoneId], references: [id])
   recordedAt      DateTime
+  sourceMessageId String? // MQTT source id, used to make QoS 1 redelivery idempotent
   rootMoisture    Float?
   surfaceMoisture Float?
   soilTempC       Float?
@@ -172,6 +214,7 @@ model Telemetry {
 
   @@index([farmId, recordedAt])
   @@index([zoneId, recordedAt])
+  @@unique([farmId, sourceMessageId])
 }
 
 /// Farm-level radio/power/connectivity summary — one row per farm.
@@ -185,8 +228,11 @@ model DeviceStatus {
   cellularStatus   String? // CONNECTED | OFFLINE
   cellularOperator String? // "Mobilis"
   cellularSignal   Int? // 0..5 bars
-  batteryPct       Int?
-  updatedAt        DateTime @updatedAt
+  batteryPct          Int?
+  loraGatewayOnline   Boolean  @default(false)
+  loraUptimeMinutes   Int?
+  flowRateLpm         Float?
+  updatedAt           DateTime @updatedAt
 }
 
 model SystemComponent {
@@ -217,6 +263,11 @@ model ErrorLog {
   messageAr  String
   actionEn   String?
   actionAr   String?
+  /// Where the fault happened: a zone, a specific sensor, or neither for a farm-wide error.
+  /// SetNull rather than Cascade — the log entry outlives the zone it names.
+  zoneId     String?
+  zone       Zone?   @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  sensorKey  String?
 
   @@index([farmId, occurredAt])
 }
@@ -275,8 +326,9 @@ model IrrigationCommand {
   action      String // OPEN | CLOSE
   durationMin Int? // 1..120; null when closing
   status      String    @default("PENDING") // PENDING | EXECUTED | FAILED | CANCELLED
-  requestedAt DateTime  @default(now())
-  executedAt  DateTime?
+  requestedAt    DateTime  @default(now())
+  acknowledgedAt DateTime? // first device RECEIVED ACK; not proof of execution
+  executedAt     DateTime?
 
   @@index([farmId, requestedAt])
 }
@@ -324,6 +376,16 @@ model BookingBlock {
 }
 
 // ─────────────────────────────────────────────────────────────── public content
+
+model PricingPlan {
+  id           String  @id @default(cuid())
+  nameEn       String
+  nameAr       String
+  price        Float
+  currency     String  @default("DZD")
+  featuresJson String  @default("[]") // JSON-encoded bilingual feature list
+  isActive     Boolean @default(true)
+}
 
 model BlogPost {
   id           String   @id @default(cuid())

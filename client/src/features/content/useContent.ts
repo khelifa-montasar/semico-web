@@ -28,6 +28,15 @@ export function useProducts() {
   });
 }
 
+export function usePricingPlans() {
+  return useQuery({
+    queryKey: queryKeys.content.pricing(),
+    queryFn: () => contentApi.pricingPlans(),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 /**
  * All published posts.
  *

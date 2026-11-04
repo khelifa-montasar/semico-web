@@ -54,6 +54,9 @@ export interface DeviceStatus {
   /** 0–5 bars, as the UI renders "Signal 4/5". */
   cellularSignal: number | null;
   batteryPct: number | null;
+  loraGatewayOnline: boolean;
+  loraUptimeMinutes: number | null;
+  flowRateLpm: number | null;
   updatedAt: string;
 }
 
@@ -76,6 +79,44 @@ export interface ErrorLog {
   componentName: Localized;
   message: Localized;
   action: Localized | null;
+  /**
+   * Where the fault happened, so the log can be acted on without a second lookup: a zone, a
+   * specific sensor, both, or neither for a farm-wide error.
+   */
+  location: {
+    zoneId: string | null;
+    zoneName: string | null;
+    sensorKey: string | null;
+  };
+}
+
+export const SENSOR_CONNECTIONS = ["ONLINE", "OFFLINE"] as const;
+export type SensorConnection = (typeof SENSOR_CONNECTIONS)[number];
+
+/** One physical sensor. A farm has dozens; they belong to a zone. */
+export interface Sensor {
+  id: string;
+  /** Stable human identifier, e.g. "Z1-S3" — what the error log's Location column shows. */
+  key: string;
+  zoneId: string;
+  zoneName: string;
+  connection: SensorConnection;
+  lastSeenAt: string;
+  batteryPct: number | null;
+}
+
+/**
+ * A zone with its sensors — the unit System Health's main view renders.
+ *
+ * Grouping server-side rather than returning a flat list: the page has to show 50+ sensors, and a
+ * flat list would make every zone header a client-side reduce over the whole set.
+ */
+export interface SensorZoneGroup {
+  zoneId: string;
+  zoneName: string;
+  sensors: Sensor[];
+  onlineCount: number;
+  offlineCount: number;
 }
 
 export interface SystemHealthResponse {
