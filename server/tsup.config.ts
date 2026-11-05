@@ -18,6 +18,7 @@ export default defineConfig({
   clean: true,
   // Prisma's engine binaries must stay external; bundling them breaks at runtime.
   external: ["@prisma/client", ".prisma"],
+  noExternal: ["@semico/shared"],
   // Silences the CJS/ESM interop shim noise for deps that ship both.
   shims: false,
 });
