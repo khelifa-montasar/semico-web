@@ -1,170 +1,170 @@
-# Semico
+# `@semico/client`
 
-Smart irrigation for Algerian farms — soil-moisture monitoring, automated watering, and
-measurable water savings. Bilingual (English / العربية with full RTL), priced in DZD, built for
-Algerian conditions.
+The Semico web app — a public marketing site and an authenticated farm dashboard.
 
-This repository is a monorepo containing the web client, the API, and the domain contracts they
-share.
+React 18 · Vite 6 · Tailwind 4 · react-router 7 · TanStack Query.
 
 ---
 
-## Layout
+## Running it
 
-| Workspace | What it is | Stack |
-|---|---|---|
-| `client/` | The web app — marketing site and the authenticated farm dashboard | React 18, Vite 6, Tailwind 4, react-router 7, TanStack Query |
-| `server/` | The REST API | Node 20+, Express 5, Prisma, SQLite |
-| `shared/` | `@semico/shared` — zod schemas and inferred types used by both sides | TypeScript |
-
-`docs/specs/` holds the original design documents. `guidelines/` is the Figma template.
-
-### Why a shared workspace
-
-`shared/` is the single source of truth for the domain. The server imports the zod schemas for
-runtime request validation; the client imports the inferred types and reuses the same schemas for
-form validation. Because the schemas **are** the types, a validation rule and its TypeScript shape
-cannot drift apart. Neither side may import from the other.
-
----
-
-## Architecture
-
-```mermaid
-flowchart LR
-  subgraph Browser["Browser"]
-    UI["React app<br/>client/"]
-  end
-
-  subgraph API["server/ — Express 5"]
-    MW["middleware<br/>auth · rbac · validate · rate-limit · errors"]
-    MOD["modules<br/>auth · content · reference · farms<br/>telemetry · activity · irrigation · workers"]
-    REPO["repositories"]
-  end
-
-  subgraph Data["Persistence"]
-    DB[("SQLite<br/>prisma/dev.db")]
-  end
-
-  SH["shared/ — @semico/shared<br/>zod schemas + types"]
-
-  UI -- "HTTPS /api/v1<br/>(dev: Vite proxy)" --> MW
-  MW --> MOD
-  MOD --> REPO
-  REPO --> DB
-  SH -. "types + validation" .-> UI
-  SH -. "types + validation" .-> API
+```bash
+npm run dev        # from the repo root, or in this workspace
 ```
 
-In development the client proxies `/api` to the API, so the browser sees a single origin. That is
-what allows the refresh token to live in an httpOnly `SameSite=Lax` cookie without needing CORS or
-`SameSite=None`.
+Vite serves on **:5173** and proxies `/api` to the API on **:4000**, so the browser only ever sees
+one origin in development. That is deliberate: it lets the refresh token live in an httpOnly
+`SameSite=Lax` cookie without CORS or `SameSite=None`.
 
-## Request lifecycle
+| Script | Does |
+|---|---|
+| `dev` | Vite dev server with HMR |
+| `build` | Production bundle to `dist/` |
+| `preview` | Serve the built bundle |
+| `typecheck` | `tsc --noEmit` |
+
+## Environment
+
+| Variable | Default | Notes |
+|---|---|---|
+| `VITE_API_URL` | `/api/v1` | Base path for API calls. **Must include the version segment** — the server mounts under `/api/v1` and the dev proxy forwards `/api` verbatim without rewriting |
+| `VITE_API_PROXY_TARGET` | `http://localhost:4000` | Where the dev proxy points |
+
+---
+
+## Structure
+
+```
+src/
+├── main.tsx                    mounts App
+├── api/                        one module per resource + the query-key factory
+│   ├── http.ts                 ← actually lib/api/http.ts: envelope, tokens, 401 retry
+│   ├── queryKeys.ts            cache-key factory, invalidated by prefix
+│   └── auth.ts  farm.ts  telemetry.ts  activity.ts  irrigation.ts
+│       analytics.ts  workers.ts  bookings.ts  content.ts  profile.ts
+├── features/                   one folder per feature; mirrors server/src/modules
+│   ├── auth/                   AuthContext + RequireAuth
+│   ├── activity/  analytics/  content/  dashboard/  settings/  systemHealth/  workers/
+├── lib/                        api/http.ts, api/queryClient.ts, time.ts, localized.ts
+├── app/
+│   ├── App.tsx                 provider tree
+│   ├── routes.tsx              route table, all pages lazily loaded
+│   ├── components/
+│   │   ├── pages/              the 11 route components
+│   │   ├── PublicLayout.tsx    navbar + footer shell
+│   │   ├── DashboardLayout.tsx sidebar + header shell
+│   │   ├── RouteFallback.tsx   suspense fallback
+│   │   ├── Navbar.tsx  Footer.tsx  SemicoLogo.tsx  LanguageSwitcher.tsx
+│   │   ├── SvgLineChart.tsx  LivingWaveGauge.tsx
+│   │   └── ConsultationBooking.tsx
+│   ├── contexts/
+│   │   ├── LanguageContext.tsx  en/ar + RTL, persisted to localStorage
+│   │   └── ThemeContext.tsx     light/dark/system; exposes the active palette
+│   ├── hooks/                  useTokens, useLocalized, useDebounced, useChartWidth
+│   ├── i18n/translations.ts    UI chrome only, English + Arabic
+│   └── theme/tokens.ts         the single source of truth for colour
+├── assets/                     logo and other bundled images
+└── styles/                     Tailwind entry + fonts
+```
+
+`features/<name>/` deliberately mirrors `server/src/modules/<name>/`, so a change to a feature
+touches one folder on each side with the same name.
+
+## Provider and routing tree
+
+```mermaid
+flowchart TD
+  MAIN["main.tsx"] --> APP["App.tsx"]
+  APP --> TP["ThemeProvider"]
+  TP --> LP["LanguageProvider"]
+  LP --> DIR["DirController<br/>sets &lt;html dir&gt; and lang"]
+  LP --> RP["RouterProvider"]
+
+  RP --> PUB["PublicLayout — /"]
+  PUB --> H[Home] & S[Services] & P[Products] & B[Blog] & A[About] & L[Login]
+
+  RP --> DASH["DashboardLayout — /dashboard"]
+  DASH --> D[Dashboard] & SH[System Health] & AC[Activity] & AN[Analytics] & ST[Settings]
+```
+
+## Internationalisation
+
+Two locales, English and Arabic, both fully translated. `LanguageContext` exposes
+`{ lang, setLang, t, isRTL, font }`; `isRTL` drives `dir="rtl"` on `<html>` and swaps the font
+family to Noto Sans Arabic. `styles/index.css` keeps numerals LTR inside RTL contexts so data
+values never read backwards.
+
+Content that comes from the API is returned in **both** languages as a `{ en, ar }` pair, so the
+language toggle repaints instantly without refetching. UI chrome stays in `i18n/translations.ts`.
+
+## Theming
+
+`theme/tokens.ts` is the single source of truth for the light and dark palettes. Pages read it
+through `useTokens()` rather than declaring their own colour objects — the `Tokens` interface is
+exhaustive, so a missing key is a build error instead of a silently transparent element.
+
+Brand palette: Semico Green `#00A859` (primary), Smart Blue `#0077B6` (secondary), Energy Orange
+`#FF6B35` (warnings), borders `#EAECF0`. Fonts: Inter (400/500), JetBrains Mono for all data
+values, Noto Sans Arabic for Arabic.
+
+Every page and the dashboard layout read this palette. The app originally had **seven separate
+inline copies** of it, so a colour change meant seven edits and a missed one failed silently —
+that is what the `Tokens` interface exists to prevent. `About` is the one exception: it spreads the
+shared tokens and overrides six values, because its light-mode body text is deliberately darker
+(`#4A4A4A`) than the app-wide muted tone.
+
+## Sign-in flow
 
 ```mermaid
 sequenceDiagram
-  participant C as Client
-  participant E as Express app
-  participant L as requestLogger (pino)
-  participant A as requireAuth
-  participant S as service
-  participant R as repository
-  participant P as Prisma → SQLite
+  participant U as User
+  participant L as Login page
+  participant A as AuthContext
+  participant H as api/http.ts
+  participant S as API
 
-  C->>E: POST /api/v1/... (Bearer token)
-  E->>L: assign request id
-  E->>A: verify JWT, then load user + farm fresh from DB
-  A-->>E: req.auth { role, workerType, valveControl, farmId }
-  E->>S: call service with validated input
-  S->>R: domain query
-  R->>P: SQL
-  P-->>R: rows
-  R-->>S: entities
-  S-->>E: DTO
-  E-->>C: 200 { data }
+  U->>L: email + password
+  L->>A: login()
+  A->>H: POST /auth/login
+  H->>S: credentials
+  S-->>H: accessToken (body) + refresh cookie (httpOnly)
+  H-->>A: store access token in memory
+  A->>S: GET /auth/me
+  S-->>A: { role, workerType, valveControl, farmName }
+  A-->>L: authenticated
+  L->>U: navigate to /dashboard
 
-  Note over E,C: any throw → errorHandler maps ApiError / ZodError / Prisma<br/>to { error: { code, message, details } }
+  Note over H,S: later, the access token expires
+  H->>S: any request → 401
+  H->>S: POST /auth/refresh (single-flight)
+  S-->>H: new accessToken + rotated cookie
+  H->>S: retry the original request once
 ```
 
-The important detail is in `requireAuth`: the access token carries only the user id and role, and
-the rest of the authorization context is re-read from the database on **every** request. That is
-what makes revoking a worker's valve permission take effect immediately rather than whenever their
-token happens to expire.
+The access token is held **in memory only** — never `localStorage` — so an XSS bug cannot read a
+long-lived credential. The refresh token is the httpOnly cookie, which JavaScript cannot see.
 
----
+## Data fetching
 
-## Getting started
+TanStack Query, with one module per resource under `src/api/`. Query keys are namespaced
+(`['telemetry','latest']`, `['activity','feed',{type}]`) so mutations can invalidate by prefix.
 
-Requires Node 20+ and npm 10+ (npm workspaces).
+**Invalidating everything an action touched is the part that is easy to get wrong.** Opening a valve
+writes an irrigation event, moves the valve *and* appends a farmer-facing activity row — so
+`useIrrigate` invalidates telemetry, activity, irrigation and analytics. Refreshing only the
+telemetry would leave the Activity page showing a history that does not include the thing the user
+just did.
 
-```bash
-npm install                     # installs all three workspaces
-cp server/.env.example server/.env
-npm run db:migrate              # create the SQLite schema
-npm run db:seed                 # demo farm, content, 58 wilayas
-npm run dev                     # API on :4000, client on :5173
-```
-
-The seed creates a demo farm you can sign in with:
-
-| Role | Email | Password | Notes |
-|---|---|---|---|
-| Farm owner | `owner@semico.dz` | `Semico2026!` | full access, sees the owner code |
-| Operator | `youssef@ferme.dz` | `Semico2026!` | valve control granted |
-| Observer | `fatima@ferme.dz` | `Semico2026!` | read-only |
-
-The demo farm's owner code is `SEMI-CO26` — a worker signs up with it to join an existing farm.
-**These are demo credentials; change them before any real deployment.**
-
-To provision the first platform administrator, apply migrations, set `SUPER_ADMIN_PASSWORD`
-in `server/.env`, and run `npm run db:seed:admin`. The email defaults to `admin@semico.dz`;
-set `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_NAME` to customize it. This separate seed creates no farm
-and preserves existing data. See [the server instructions](server/README.md#first-platform-administrator).
-
-Platform admins manage bilingual pricing plans at `/admin/pricing` and blog posts at `/admin/blog`.
-The public `/services` page reads active `PricingPlan` records, not legacy service-plan data or
-hardcoded prices. Create plans in the portal, or seed demo data for two initial active plans.
-Blog drafts stay private until published. See [CMS API details](server/README.md#content--pricing-management).
-
-The final oversight screens are `/admin/farms` (suspend/resume farms) and `/admin/users`
-(disable/enable accounts). Apply pending migrations with `npm --workspace server run db:deploy`
-before launching; this adds the platform account lock without resetting data. See
-[oversight safeguards and API details](server/README.md#farms--users-oversight).
-
-For a thesis-ready description of the complete V5 system, including architecture, data flows,
-security, validation evidence, and implementation limitations, see
-[the platform architecture summary](docs/THESIS-ARCHITECTURE.md).
-
-## Scripts
-
-| Command | Does |
-|---|---|
-| `npm run dev` | API and client together |
-| `npm run build` | Typecheck `shared`, then build `server` and `client` |
-| `npm run typecheck` | `tsc --noEmit` across all workspaces |
-| `npm run lint` | ESLint across all workspaces |
-| `npm run test` | Full server and client test suites |
-| `npm run db:migrate` | Create/apply a Prisma migration |
-| `npm run db:seed` | Seed demo data |
-| `npm run db:studio` | Browse the database |
-| `npm run db:reset` | Drop, re-migrate and re-seed |
-| `npm run esp32:simulator` | Publish fake MQTT telemetry and receive valve commands |
-
-For exact broker, app, and simulator commands, see the [graduation defense MQTT demo](docs/realtime-mqtt.md#graduation-defense-exact-local-commands).
-
-Continuous integration runs typecheck, lint, tests and both builds (`.github/workflows/ci.yml`).
+`api.getPage()` is used for list endpoints because it preserves the server's pagination `meta`;
+`api.get()` would silently drop it.
 
 ## Conventions
 
-- **Layering.** `routes → controller → service → repository → Prisma`. Controllers never touch
-  Prisma; repositories never throw HTTP errors. One module per feature, always the same file names.
-- **Validation** happens at the controller boundary using the shared schemas, so request payloads
-  are fully typed without casting.
-- **Bilingual content** uses explicit `*En` / `*Ar` columns. Responses carry both, and the client
-  picks one — so switching language never refetches.
-- **Audit trail.** Permission changes and valve actions write an `AuditLog` row inside the same
-  transaction as the state change, so the trail cannot drift from reality.
+- **Never declare a palette inline.** Use `useTokens()`.
+- **Never hard-code domain data.** Prices, posts, products and sensor values come from the API; only
+  chrome belongs in `i18n/translations.ts`.
+- **Add user-facing strings to both locales.** `translations.ts` is cast
+  `as unknown as TranslationSet`, so the compiler will not catch a key missing from `ar`.
+- Prefer logical CSS properties (`ms-`/`me-`, `ps-`/`pe-`, `borderInlineEnd`) so RTL mirrors for
+  free rather than needing per-component branching.
 
-See [`client/README.md`](client/README.md) and [`server/README.md`](server/README.md) for the
-details of each side.
