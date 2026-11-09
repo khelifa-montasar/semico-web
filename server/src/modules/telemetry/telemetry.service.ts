@@ -252,7 +252,7 @@ export const telemetryService = {
         zoneId: row.zoneId,
         zoneName: row.zone.name,
         connection: row.connection as SensorConnection,
-        lastSeenAt: row.lastSeenAt.toISOString(),
+        lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
         batteryPct: row.batteryPct,
       };
 

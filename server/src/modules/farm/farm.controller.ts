@@ -53,6 +53,11 @@ export const farmController = {
 
   listZones: asyncHandler(async (req, res) => ok(res, await farmService.listZones(authOf(req)))),
 
+  getZone: asyncHandler(async (req, res) => {
+    const { id } = idParamSchema.parse(req.params);
+    return ok(res, await farmService.getZone(authOf(req), id));
+  }),
+
   createZone: asyncHandler(async (req, res) => {
     const input = parseBody(req, zoneInputSchema);
     return res.status(201).json({ data: await farmService.createZone(authOf(req), input, req) });

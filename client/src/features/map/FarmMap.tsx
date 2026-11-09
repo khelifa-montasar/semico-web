@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CircleMarker,
   MapContainer,
@@ -9,9 +10,9 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { MAP_ATTRIBUTION, MAP_MAX_ZOOM, MAP_TILE_URL, PLOT } from "../demoPlot/config";
+import { MAP_ATTRIBUTION, MAP_MAX_ZOOM, MAP_TILE_NATIVE_ZOOM, MAP_TILE_URL, PLOT } from "../demoPlot/config";
 import { bandToken } from "../demoPlot/format";
-import { plotDimensionsForArea, sensorSlotPositions, zoneRectangles, type LatLng } from "./geometry";
+import { farmMapCenter, sensorSlotPositions, zoneShapes, type LatLng, type ZoneRectangle } from "./geometry";
 import { useTokens } from "@/app/hooks/useTokens";
 import { useLanguage } from "@/app/contexts/LanguageContext";
 import { useMapViewport, type MapViewport } from "./useMapViewport";
@@ -23,6 +24,7 @@ export interface FarmMapZone {
   moisture: number | null;
   valveState: "OPEN" | "CLOSED";
   layoutOnly?: boolean;
+  boundary?: LatLng[] | null;
 }
 
 export interface FarmMapSensor {
@@ -61,6 +63,22 @@ function ViewportSync({
   return null;
 }
 
+function FitSavedLayout({ farmId, shapes, sensorsPerZone }: { farmId?: string; shapes: ZoneRectangle[]; sensorsPerZone: number }) {
+  const map = useMap();
+  const client = useQueryClient();
+  const signature = JSON.stringify([shapes.map(shape => shape.ring), sensorsPerZone]);
+  useEffect(() => {
+    const key = ["farm-map-layout", farmId ?? "default"];
+    if (client.getQueryData(key) === signature) return;
+    const points = shapes.flatMap(shape => shape.ring);
+    if (!points.length) return;
+    client.setQueryDefaults(key, { gcTime: Infinity, staleTime: Infinity });
+    client.setQueryData(key, signature);
+    map.fitBounds(points, { padding: [24, 24], maxZoom: MAP_MAX_ZOOM, animate: false });
+  }, [client, map, farmId, signature, shapes]);
+  return null;
+}
+
 /** The farm field map; viewport state is shared between Dashboard and Technical Diagnostics. */
 export function FarmMap({
   zones,
@@ -96,12 +114,7 @@ export function FarmMap({
 }) {
   const c = useTokens();
   const { t } = useLanguage();
-  const initialCenter = center ?? (boundary && boundary.length > 0
-    ? [
-        boundary.reduce((sum, point) => sum + point[0], 0) / boundary.length,
-        boundary.reduce((sum, point) => sum + point[1], 0) / boundary.length,
-      ] as LatLng
-    : [PLOT.center.lat, PLOT.center.lng]);
+  const initialCenter = farmMapCenter(center, boundary);
   const { viewport, saveViewport } = useMapViewport(farmId, initialCenter, PLOT.zoom);
   const layoutZones = Array.from({ length: zoneCount }, (_, index) =>
     zones[index] ?? {
@@ -112,11 +125,7 @@ export function FarmMap({
       layoutOnly: true,
     },
   );
-  const rectangles = zoneRectangles(
-    layoutZones.length,
-    { lat: initialCenter[0], lng: initialCenter[1] },
-    plotDimensionsForArea(landAreaHa),
-  );
+  const rectangles = zoneShapes(layoutZones, layoutZones.length, initialCenter, landAreaHa);
   const sensorGroups = new Map<string, FarmMapSensor[]>();
   for (const sensor of sensors) {
     const group = sensorGroups.get(sensor.zoneId) ?? [];
@@ -134,8 +143,9 @@ export function FarmMap({
         scrollWheelZoom={false}
         style={{ height: "100%", width: "100%" }}
       >
-        <TileLayer url={MAP_TILE_URL} attribution={MAP_ATTRIBUTION} maxZoom={MAP_MAX_ZOOM} />
+        <TileLayer url={MAP_TILE_URL} attribution={MAP_ATTRIBUTION} maxZoom={MAP_MAX_ZOOM} maxNativeZoom={MAP_TILE_NATIVE_ZOOM} />
         <ViewportSync viewport={viewport} onChange={saveViewport} />
+        <FitSavedLayout farmId={farmId} shapes={rectangles} sensorsPerZone={sensorsPerZone} />
 
         {boundary && boundary.length >= 3 && (
           <Polygon
@@ -172,8 +182,8 @@ export function FarmMap({
         {layoutZones.map((zone, zoneIndex) => {
           const rectangle = rectangles[zoneIndex];
           if (!rectangle || zone.layoutOnly) return null;
-          const zoneSensors = sensorGroups.get(zone.id) ?? [];
-          const slotCount = Math.max(sensorsPerZone, zoneSensors.length);
+          const slotCount = Math.max(0, Math.floor(sensorsPerZone));
+          const zoneSensors = (sensorGroups.get(zone.id) ?? []).slice(0, slotCount);
           const positions = sensorSlotPositions(rectangle, slotCount);
           return positions.map((position, sensorIndex) => {
             const sensor = zoneSensors[sensorIndex];

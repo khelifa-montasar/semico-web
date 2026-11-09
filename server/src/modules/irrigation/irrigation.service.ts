@@ -102,6 +102,8 @@ export const irrigationService = {
       : { kind: FEED_COPY.CLOSE.kind, en: FEED_COPY.CLOSE.en(zone.name), ar: FEED_COPY.CLOSE.ar(zone.name) };
 
     const commandId = await prisma.$transaction(async (tx) => {
+      const configured = await tx.zone.findFirst({ where: { id: zone.id, farmId, configured: true }, select: { id: true } });
+      if (!configured) throw ApiError.notFound("That zone is no longer in the configured layout");
       const command = await irrigationRepository.createCommand(tx, {
         farmId,
         zoneId: zone.id,

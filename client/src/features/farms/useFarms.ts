@@ -4,6 +4,7 @@ import type { CreateFarmInput, Farm, UpdateFarmInput, ZoneInput, UpdateZoneInput
 import { farmApi, queryKeys } from "@/api";
 import { setActiveFarmId } from "@/lib/api/http";
 import { mapViewportQueryKey, type MapViewport } from "@/features/map/useMapViewport";
+import { activeFarmScope, invalidateFarmLayout } from "./activeFarmScope";
 
 /**
  * Multi-farm management (V2).
@@ -63,8 +64,10 @@ export function useCreateZone() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: ZoneInput) => farmApi.createZone(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.farm.zones() }),
+    mutationFn: (input: ZoneInput) => farmApi.createZone(input, activeFarmScope(queryClient)),
+    onSuccess: async () => {
+      await Promise.all([invalidateFarmLayout(queryClient), queryClient.invalidateQueries({ queryKey: ["farm", "settings"] })]);
+    },
   });
 }
 
@@ -73,8 +76,8 @@ export function useUpdateZone() {
 
   return useMutation({
     mutationFn: (vars: { id: string; input: UpdateZoneInput }) =>
-      farmApi.updateZone(vars.id, vars.input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.farm.zones() }),
+      farmApi.updateZone(vars.id, vars.input, activeFarmScope(queryClient)),
+    onSuccess: () => invalidateFarmLayout(queryClient),
   });
 }
 

@@ -10,13 +10,14 @@ import type {
   ZoneInput,
   UpdateZoneInput,
 } from "@semico/shared";
-import { ERROR_CODES, MAX_FARMS_PER_OWNER } from "@semico/shared";
+import { ERROR_CODES, MAX_FARMS_PER_OWNER, MAX_ZONE_COUNT, zoneBoundarySchema } from "@semico/shared";
 import { ApiError } from "../../lib/ApiError.js";
 import { loc } from "../../lib/localized.js";
 import { generateOwnerCode } from "../../lib/initials.js";
 import { prisma } from "../../db/prisma.js";
 import { writeAudit } from "../../lib/audit.js";
 import { farmRepository } from "./farm.repository.js";
+import { reconcileFarmLayout } from "./layout.repository.js";
 import type { AuthContext } from "../../types/auth.js";
 import type { Request } from "express";
 
@@ -83,12 +84,21 @@ function toFarm(row: FarmRow, auth: AuthContext): Farm {
 
 function toSettings(row: NonNullable<Awaited<ReturnType<typeof farmRepository.findSettings>>>): FarmSettings {
   return {
+    farmId: row.farmId,
     moistureThreshold: row.moistureThreshold,
     autoIrrigation: row.autoIrrigation,
     pushNotifications: row.pushNotifications,
     timezone: row.timezone,
     zoneCount: row.zoneCount,
     sensorsPerZone: row.sensorsPerZone,
+  };
+}
+
+function toZone(zone: { id: string; name: string; valveState: string; sortOrder: number; boundaryJson: string | null }, latestMoisture: number | null = null): Zone {
+  const boundary = zoneBoundarySchema.safeParse(parseBoundary(zone.boundaryJson));
+  return {
+    id: zone.id, name: zone.name, valveState: zone.valveState as Zone["valveState"],
+    sortOrder: zone.sortOrder, latestMoisture, boundary: boundary.success ? boundary.data : null,
   };
 }
 
@@ -258,10 +268,14 @@ export const farmService = {
     input: Partial<FarmSettingsInput>,
     req?: Request,
   ): Promise<FarmSettings> {
+    if (auth.role !== "OWNER") throw ApiError.forbidden("Only a farm owner can change farm settings");
     const farmId = requireFarmId(auth);
-    const row = await farmRepository.upsertSettings(farmId, input);
-
-    await prisma.$transaction(async (tx) => {
+    const row = await prisma.$transaction(async (tx) => {
+      const updated = await farmRepository.upsertSettings(farmId, input, tx);
+      if (input.zoneCount !== undefined || input.sensorsPerZone !== undefined) {
+        const layout = await reconcileFarmLayout(tx, farmId, updated.zoneCount, updated.sensorsPerZone);
+        if (layout.blockedZoneId) throw ApiError.conflict("Close valves and resolve pending irrigation commands before reducing the zone count");
+      }
       await writeAudit(
         tx,
         {
@@ -274,6 +288,7 @@ export const farmService = {
         },
         req,
       );
+      return updated;
     });
 
     return toSettings(row);
@@ -319,7 +334,12 @@ export const farmService = {
     const farmId = requireFarmId(auth);
 
     const zone = await prisma.$transaction(async (tx) => {
-      const created = await farmRepository.createZone(farmId, input, tx);
+      const count = await tx.zone.count({ where: { farmId, configured: true } });
+      if (count >= MAX_ZONE_COUNT) throw ApiError.badRequest(`A farm can have at most ${MAX_ZONE_COUNT} configured zones`);
+      const { boundary, ...fields } = input;
+      const created = await farmRepository.createZone(farmId, { ...fields, boundaryJson: boundary ? JSON.stringify(boundary) : null }, tx);
+      const settings = await farmRepository.upsertSettings(farmId, { zoneCount: count + 1 }, tx);
+      await reconcileFarmLayout(tx, farmId, settings.zoneCount, settings.sensorsPerZone);
       await writeAudit(
         tx,
         {
@@ -335,13 +355,7 @@ export const farmService = {
       return created;
     });
 
-    return {
-      id: zone.id,
-      name: zone.name,
-      valveState: zone.valveState as Zone["valveState"],
-      sortOrder: zone.sortOrder,
-      latestMoisture: null,
-    };
+    return toZone(zone);
   },
 
   async updateZone(
@@ -354,7 +368,10 @@ export const farmService = {
     const farmId = requireFarmId(auth);
 
     const zone = await prisma.$transaction(async (tx) => {
-      const result = await farmRepository.updateZone(farmId, zoneId, input, tx);
+      const { boundary, ...fields } = input;
+      const result = await farmRepository.updateZone(farmId, zoneId, {
+        ...fields, ...(boundary !== undefined ? { boundaryJson: boundary ? JSON.stringify(boundary) : null } : {}),
+      }, tx);
       if (result.count === 0) throw ApiError.notFound("That zone does not exist");
       const updated = await farmRepository.findZone(farmId, zoneId, tx);
       if (!updated) throw ApiError.notFound("That zone does not exist");
@@ -374,13 +391,13 @@ export const farmService = {
       return updated;
     });
 
-    return {
-      id: zone.id,
-      name: zone.name,
-      valveState: zone.valveState as Zone["valveState"],
-      sortOrder: zone.sortOrder,
-      latestMoisture: null,
-    };
+    return toZone(zone);
+  },
+
+  async getZone(auth: AuthContext, id: string): Promise<Zone> {
+    const zone = await farmRepository.findZone(requireFarmId(auth), id);
+    if (!zone) throw ApiError.notFound("That zone does not exist");
+    return toZone(zone);
   },
 
   async listZones(auth: AuthContext): Promise<Zone[]> {
@@ -390,7 +407,7 @@ export const farmService = {
       // Most recent reading per zone, for the moisture shown on the zone list.
       prisma.telemetry.groupBy({
         by: ["zoneId"],
-        where: { farmId, zoneId: { not: null } },
+        where: { farmId, zoneId: { not: null }, zone: { configured: true } },
         _max: { recordedAt: true },
       }),
     ]);
@@ -412,12 +429,6 @@ export const farmService = {
       readings.filter((r): r is NonNullable<typeof r> => r !== null).map((r) => [r.zoneId, r.rootMoisture]),
     );
 
-    return zones.map((zone) => ({
-      id: zone.id,
-      name: zone.name,
-      valveState: zone.valveState as Zone["valveState"],
-      sortOrder: zone.sortOrder,
-      latestMoisture: moistureByZone.get(zone.id) ?? null,
-    }));
+    return zones.map((zone) => toZone(zone, moistureByZone.get(zone.id) ?? null));
   },
 };

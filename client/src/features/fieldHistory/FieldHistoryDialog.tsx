@@ -53,7 +53,7 @@ export function FieldHistoryContent({
     minute: "2-digit",
     hour12: false,
   });
-  const time = (value: string) => dateTime.format(new Date(value));
+  const time = (value: string | null) => value ? dateTime.format(new Date(value)) : t.systemHealth.notReported;
   const batteries = data.sensors.flatMap((sensor) =>
     sensor.batteryPct == null ? [] : [sensor.batteryPct],
   );

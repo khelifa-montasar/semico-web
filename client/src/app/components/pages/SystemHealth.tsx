@@ -22,9 +22,10 @@ import { useErrorLogs, useSensors, useSystemHealth } from "../../../features/sys
 
 /** Relative time, because "when did this last report?" is the question, not "what o'clock was it?". */
 function relativeTime(
-  iso: string,
-  labels: { justNow: string; minutesAgo: string; hoursAgo: string; daysAgo: string },
+  iso: string | null,
+  labels: { justNow: string; minutesAgo: string; hoursAgo: string; daysAgo: string; notReported: string },
 ): string {
+  if (!iso) return labels.notReported;
   const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60_000);
   if (!Number.isFinite(minutes) || minutes < 1) return labels.justNow;
   if (minutes < 60) return `${minutes} ${labels.minutesAgo}`;

@@ -2,11 +2,6 @@ import { Router } from "express";
 import { farmController } from "./farm.controller.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireFarmAccess, requireOwner } from "../../middleware/rbac.js";
-import { idParamSchema } from "../../lib/validate.js";
-import { prisma } from "../../db/prisma.js";
-import { ApiError } from "../../lib/ApiError.js";
-import { asyncHandler } from "../../lib/asyncHandler.js";
-import { ok } from "../../lib/response.js";
 
 /**
  * `/api/v1/farms` — the caller's farms, and `/api/v1/farms/me` — the active one.
@@ -50,23 +45,4 @@ farmRoutes.patch("/me/zones/:id", ...ownerOnly, farmController.updateZone);
  *
  * Defined here rather than in the telemetry module because a zone is farm metadata, not a reading.
  */
-farmRoutes.get(
-  "/me/zones/:id",
-  ...memberOnly,
-  asyncHandler(async (req, res) => {
-    const auth = req.auth;
-    if (!auth?.farmId) throw ApiError.forbidden("You are not attached to a farm yet");
-
-    const { id } = idParamSchema.parse(req.params);
-    const zone = await prisma.zone.findFirst({ where: { id, farmId: auth.farmId } });
-    // 404 rather than 403 for a zone belonging to someone else — a 403 would confirm it exists.
-    if (!zone) throw ApiError.notFound("That zone does not exist");
-
-    return ok(res, {
-      id: zone.id,
-      name: zone.name,
-      valveState: zone.valveState,
-      sortOrder: zone.sortOrder,
-    });
-  }),
-);
+farmRoutes.get("/me/zones/:id", ...memberOnly, farmController.getZone);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { USER_STATUSES, WORKER_TYPES } from "../enums.js";
+import { zoneBoundarySchema, type ZoneBoundary } from "./zoneLayout.js";
 
 /**
  * Farm, zone and worker contracts.
@@ -104,6 +105,7 @@ export const setValveControlSchema = z.object({ granted: z.boolean() });
 export const zoneInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   sortOrder: z.coerce.number().int().min(0).default(0),
+  boundary: zoneBoundarySchema.nullable().optional(),
 });
 
 export const updateZoneSchema = zoneInputSchema.partial().refine(
@@ -158,6 +160,7 @@ export const farmBoundarySchema = z.object({
 export type FarmBoundaryInput = z.infer<typeof farmBoundarySchema>;
 
 export interface FarmSettings extends FarmSettingsInput {
+  farmId: string;
   timezone: string;
 }
 
@@ -168,6 +171,7 @@ export interface Zone {
   sortOrder: number;
   /** Latest reading per zone, resolved by the telemetry repository. */
   latestMoisture: number | null;
+  boundary?: ZoneBoundary | null;
 }
 
 /** A row in the Settings worker table. Mirrors the page's local `WorkerEntry` shape. */

@@ -101,7 +101,7 @@ export interface Sensor {
   zoneId: string;
   zoneName: string;
   connection: SensorConnection;
-  lastSeenAt: string;
+  lastSeenAt: string | null;
   batteryPct: number | null;
 }
 

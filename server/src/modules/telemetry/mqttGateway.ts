@@ -331,7 +331,7 @@ export class MqttGateway {
 
     if (device.zoneId) {
       const zone = await prisma.zone.findFirst({
-        where: { id: device.zoneId, farmId: device.farmId },
+        where: { id: device.zoneId, farmId: device.farmId, configured: true },
         select: { id: true },
       });
       if (!zone) throw new InvalidMqttMessageError("Configured MQTT zone is not part of the mapped farm");
@@ -341,7 +341,8 @@ export class MqttGateway {
         where: {
           farmId: device.farmId,
           key: device.sensorKey,
-          zone: { farmId: device.farmId },
+          configured: true,
+          zone: { farmId: device.farmId, configured: true },
           ...(device.zoneId ? { zoneId: device.zoneId } : {}),
         },
         select: { id: true },

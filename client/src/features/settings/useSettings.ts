@@ -9,6 +9,7 @@ import type {
 } from "@semico/shared";
 import { queryKeys, usersApi } from "@/api";
 import { farmApi } from "@/api/farm";
+import { activeFarmScope, applyFarmSettings } from "../farms/activeFarmScope";
 
 /**
  * Settings data.
@@ -101,7 +102,7 @@ export function useDeleteEducation() {
 export function useFarmSettings(farmId?: string) {
   return useQuery({
     queryKey: queryKeys.farm.settings(farmId),
-    queryFn: () => farmApi.settings(),
+    queryFn: () => farmApi.settings(farmId),
   });
 }
 
@@ -115,12 +116,12 @@ export function useUpdateFarmSettings() {
       timezone?: string;
       zoneCount?: number;
       sensorsPerZone?: number;
-    }) => farmApi.updateSettings(input),
-    onSuccess: (settings) => {
-      queryClient.setQueriesData({ queryKey: ["farm", "settings"] }, settings);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.farm.zones() });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.systemHealth.sensors() });
+    }) => {
+      const farmId = activeFarmScope(queryClient);
+      if (!farmId) throw new Error("Wait for the farm settings to load");
+      return farmApi.updateSettings(input, farmId);
     },
+    onSuccess: (settings) => applyFarmSettings(queryClient, settings),
   });
 }
 

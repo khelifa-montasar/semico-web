@@ -12,6 +12,7 @@ export function toFarmMapData(zones: Zone[], sensorGroups: SensorZoneGroup[]): {
       name: zone.name,
       moisture: zone.latestMoisture,
       valveState: zone.valveState,
+      ...(zone.boundary ? { boundary: zone.boundary } : {}),
     })),
     sensors: sensorGroups.flatMap((group) => group.sensors.map((sensor) => ({
       id: sensor.id,

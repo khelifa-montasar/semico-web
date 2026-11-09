@@ -54,7 +54,7 @@ export const telemetryRepository = {
   /** Latest reading per zone — one query per zone, bounded by the zone count. */
   async latestPerZone(farmId: string) {
     const zones = await prisma.zone.findMany({
-      where: { farmId },
+      where: { farmId, configured: true },
       orderBy: { sortOrder: "asc" },
       select: { id: true, name: true, valveState: true },
     });
@@ -103,7 +103,7 @@ export const telemetryRepository = {
   /** Every sensor on the farm, with its zone, ordered so grouping is a single pass. */
   listSensors(farmId: string) {
     return prisma.sensor.findMany({
-      where: { farmId },
+      where: { farmId, configured: true, zone: { configured: true } },
       orderBy: [{ zone: { sortOrder: "asc" } }, { sortOrder: "asc" }, { key: "asc" }],
       include: { zone: { select: { id: true, name: true, sortOrder: true } } },
     });
@@ -134,7 +134,7 @@ export const telemetryRepository = {
         if (prior) return { reading: prior, duplicate: true };
 
         const sensor = sensorKey ? await tx.sensor.findFirst({
-          where: { farmId: reading.farmId, zoneId: reading.zoneId ?? undefined, key: sensorKey, zone: { farmId: reading.farmId } },
+          where: { farmId: reading.farmId, zoneId: reading.zoneId ?? undefined, key: sensorKey, configured: true, zone: { farmId: reading.farmId, configured: true } },
           select: { id: true, zoneId: true },
         }) : null;
         if (sensorKey && !sensor) throw new Error("Configured sensor no longer exists on its farm");

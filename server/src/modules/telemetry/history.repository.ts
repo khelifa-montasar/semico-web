@@ -15,19 +15,19 @@ interface HourBucket {
 
 export const historyRepository = {
   zone(farmId: string, id: string) {
-    return prisma.zone.findFirst({ where: { id, farmId } });
+    return prisma.zone.findFirst({ where: { id, farmId, configured: true } });
   },
 
   sensor(farmId: string, id: string) {
     return prisma.sensor.findFirst({
-      where: { id, farmId, zone: { farmId } },
+      where: { id, farmId, configured: true, zone: { farmId, configured: true } },
       include: { zone: true },
     });
   },
 
   sensors(farmId: string, zoneId: string) {
     return prisma.sensor.findMany({
-      where: { farmId, zoneId },
+      where: { farmId, zoneId, configured: true, zone: { configured: true } },
       orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
     });
   },

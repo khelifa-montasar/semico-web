@@ -45,6 +45,7 @@ import {
   useUpdateZone,
 } from "../../../features/farms/useFarms";
 import { FarmBoundaryEditor } from "../../../features/map/FarmBoundaryEditor";
+import { farmMapCenter, zoneShapes, type LatLng } from "../../../features/map/geometry";
 import { getActiveFarmId } from "../../../lib/api/http";
 import {
   DEFAULT_SENSORS_PER_ZONE,
@@ -275,6 +276,8 @@ export function Settings() {
   const [timezone, setTimezone] = useState("Africa/Algiers");
   const [newZoneName, setNewZoneName] = useState("");
   const [editingZone, setEditingZone] = useState<{ id: string; name: string; sortOrder: number } | null>(null);
+  const [zoneLayoutTarget, setZoneLayoutTarget] = useState<{ id: string; name: string; farmId: string; initial: LatLng[] } | null>(null);
+  const [zoneLayoutError, setZoneLayoutError] = useState<string | null>(null);
   const [editingWorker, setEditingWorker] = useState<{
     id: string;
     name: string;
@@ -283,6 +286,27 @@ export function Settings() {
 
   const activeFarmId = chosenFarmId ?? farms.data?.[0]?.id ?? null;
   const farmLimitReached = (farms.data?.length ?? 0) >= MAX_FARMS_PER_OWNER;
+  useEffect(() => { setZoneLayoutTarget(null); setZoneLayoutError(null); }, [activeFarm.data?.id]);
+
+  function openZoneLayout(zone: Zone) {
+    const farm = activeFarm.data;
+    if (!farm) return;
+    const rows = zonesQuery.data ?? [];
+    const center = farmMapCenter(farm.latitude != null && farm.longitude != null ? [farm.latitude, farm.longitude] : undefined, farm.boundary);
+    const shapes = zoneShapes(rows, farmSettings.data?.zoneCount ?? rows.length, center, farm.landAreaHa);
+    const index = rows.findIndex(row => row.id === zone.id);
+    setZoneLayoutTarget({ id: zone.id, name: zone.name, farmId: farm.id, initial: zone.boundary ?? shapes[index]?.ring ?? [] });
+    setZoneLayoutError(null);
+  }
+
+  function saveZoneLayout(boundary: LatLng[] | null) {
+    if (!zoneLayoutTarget || zoneLayoutTarget.farmId !== activeFarm.data?.id) return;
+    setZoneLayoutError(null);
+    updateZoneMutation.mutate({ id: zoneLayoutTarget.id, input: { boundary } }, {
+      onSuccess: () => { setZoneLayoutTarget(null); toast.success(f.zoneShapeSaved); },
+      onError: error => setZoneLayoutError(error instanceof Error ? error.message : f.zonesError),
+    });
+  }
 
   function chooseFarm(farmId: string) {
     setChosenFarmId(farmId);
@@ -409,7 +433,7 @@ export function Settings() {
 
     saveFarmSettings(
       { zoneCount, sensorsPerZone },
-      { onError: (error) => reportError(error, "Could not save farm layout.") },
+      { onSuccess: () => toast.success(f.layoutSaved), onError: (error) => reportError(error, "Could not save farm layout.") },
     );
   }
 
@@ -1237,6 +1261,7 @@ export function Settings() {
             </label>
           </div>
           <p className="text-[11px] mt-3" style={{ color: c.sec }}>{f.layoutHint}</p>
+          <p className="text-[12px] mt-2" style={{ color: c.text }}>{f.totalSensors.replace("{count}", String(zoneCount * sensorsPerZone))}</p>
           <button
             type="button"
             onClick={handleSaveLayout}
@@ -1675,6 +1700,9 @@ export function Settings() {
                         <>
                           <span className="flex-1 text-[12px]" style={{ color: c.text }}>{zone.name}</span>
                           <span className="text-[10px]" style={{ color: c.sec }}>{f.sortOrder}: {zone.sortOrder}</span>
+                          <button type="button" aria-label={`${f.zoneExtent}: ${zone.name}`} onClick={() => openZoneLayout(zone)}
+                            disabled={!activeFarm.data || zonesQuery.isFetching || settingsUpdatePending || updateZoneMutation.isPending}
+                            className="px-2 py-2 text-[11px] underline disabled:opacity-40" style={{ color: c.sec }}>{f.zoneExtent}</button>
                           <button
                             type="button"
                             aria-label={`${f.editZone}: ${zone.name}`}
@@ -1948,6 +1976,14 @@ export function Settings() {
           onSave={handleSaveBoundary}
           onCancel={() => setBoundaryFarmId(null)}
         />
+      )}
+
+      {zoneLayoutTarget && activeFarm.data?.id === zoneLayoutTarget.farmId && (
+        <FarmBoundaryEditor key={zoneLayoutTarget.id} initial={zoneLayoutTarget.initial}
+          initialCenter={activeFarm.data.latitude != null && activeFarm.data.longitude != null ? [activeFarm.data.latitude, activeFarm.data.longitude] : undefined}
+          zoneMode title={`${f.zoneExtent}: ${zoneLayoutTarget.name}`} hint={f.zoneExtentHint}
+          saving={updateZoneMutation.isPending} error={zoneLayoutError}
+          onSave={saveZoneLayout} onReset={() => saveZoneLayout(null)} onCancel={() => setZoneLayoutTarget(null)} />
       )}
 
       {showInviteModal && (

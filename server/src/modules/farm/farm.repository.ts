@@ -3,7 +3,7 @@ import { prisma } from "../../db/prisma.js";
 import { generateOwnerCode } from "../../lib/initials.js";
 
 /** The subset of the Prisma client a create needs — satisfied by both the client and a transaction. */
-type Db = Pick<typeof prisma, "farm" | "zone">;
+type Db = Pick<typeof prisma, "farm" | "zone" | "farmSettings">;
 
 /**
  * Farm and farm-settings access.
@@ -18,7 +18,7 @@ export const farmRepository = {
       include: {
         wilaya: { select: { code: true, nameEn: true, nameAr: true } },
         owner: { select: { fullName: true, email: true } },
-        _count: { select: { zones: true, workers: true } },
+        _count: { select: { zones: { where: { configured: true } }, workers: true } },
       },
     });
   },
@@ -54,8 +54,9 @@ export const farmRepository = {
       zoneCount?: number;
       sensorsPerZone?: number;
     },
+    client: Db = prisma,
   ) {
-    return prisma.farmSettings.upsert({
+    return client.farmSettings.upsert({
       where: { farmId },
       create: { farmId, ...data },
       update: data,
@@ -63,24 +64,24 @@ export const farmRepository = {
   },
 
   listZones(farmId: string) {
-    return prisma.zone.findMany({ where: { farmId }, orderBy: { sortOrder: "asc" } });
+    return prisma.zone.findMany({ where: { farmId, configured: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
   },
 
   findZone(farmId: string, zoneId: string, client: Db = prisma) {
-    return client.zone.findFirst({ where: { id: zoneId, farmId } });
+    return client.zone.findFirst({ where: { id: zoneId, farmId, configured: true } });
   },
 
-  createZone(farmId: string, input: { name: string; sortOrder: number }, client: Db = prisma) {
+  createZone(farmId: string, input: { name: string; sortOrder: number; boundaryJson?: string | null }, client: Db = prisma) {
     return client.zone.create({ data: { farmId, ...input } });
   },
 
   updateZone(
     farmId: string,
     zoneId: string,
-    input: { name?: string; sortOrder?: number },
+    input: { name?: string; sortOrder?: number; boundaryJson?: string | null },
     client: Db = prisma,
   ) {
-    return client.zone.updateMany({ where: { id: zoneId, farmId }, data: input });
+    return client.zone.updateMany({ where: { id: zoneId, farmId, configured: true }, data: input });
   },
 
   /** Every farm an owner holds, oldest first. This is the farm switcher's source. */

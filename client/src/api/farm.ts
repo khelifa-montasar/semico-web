@@ -29,15 +29,15 @@ export const farmApi = {
   updateBoundary: (boundary: Array<[number, number]>) =>
     api.patch<Farm>("/farms/me/boundary", { boundary }),
 
-  settings: () => api.get<FarmSettings>("/farms/me/settings"),
+  settings: (farmId?: string) => api.get<FarmSettings>("/farms/me/settings", farmId ? { headers: { "X-Farm-Id": farmId } } : undefined),
   /** Partial: the Settings page saves individual controls rather than the whole form. */
-  updateSettings: (input: Partial<FarmSettingsInput>) =>
-    api.patch<FarmSettings>("/farms/me/settings", input),
+  updateSettings: (input: Partial<FarmSettingsInput>, farmId?: string) =>
+    api.patch<FarmSettings>("/farms/me/settings", input, farmId ? { headers: { "X-Farm-Id": farmId } } : undefined),
 
   /** Invalidates the old join code. Owner-only. */
   rotateOwnerCode: () => api.post<{ ownerCode: string }>("/farms/me/owner-code/rotate"),
 
   zones: () => api.get<Zone[]>("/farms/me/zones"),
-  createZone: (input: ZoneInput) => api.post<Zone>("/farms/me/zones", input),
-  updateZone: (id: string, input: UpdateZoneInput) => api.patch<Zone>(`/farms/me/zones/${id}`, input),
+  createZone: (input: ZoneInput, farmId?: string) => api.post<Zone>("/farms/me/zones", input, farmId ? { headers: { "X-Farm-Id": farmId } } : undefined),
+  updateZone: (id: string, input: UpdateZoneInput, farmId?: string) => api.patch<Zone>(`/farms/me/zones/${id}`, input, farmId ? { headers: { "X-Farm-Id": farmId } } : undefined),
 };

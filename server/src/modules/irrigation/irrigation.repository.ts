@@ -11,16 +11,16 @@ import type { Prisma } from "@prisma/client";
  */
 export const irrigationRepository = {
   findZone(farmId: string, zoneId: string) {
-    return prisma.zone.findFirst({ where: { id: zoneId, farmId } });
+    return prisma.zone.findFirst({ where: { id: zoneId, farmId, configured: true } });
   },
 
   /** First zone by sort order — the fallback when a request omits `zoneId`. */
   findDefaultZone(farmId: string) {
-    return prisma.zone.findFirst({ where: { farmId }, orderBy: { sortOrder: "asc" } });
+    return prisma.zone.findFirst({ where: { farmId, configured: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
   },
 
   listZones(farmId: string) {
-    return prisma.zone.findMany({ where: { farmId }, orderBy: { sortOrder: "asc" } });
+    return prisma.zone.findMany({ where: { farmId, configured: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
   },
 
   createCommand(

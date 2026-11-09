@@ -163,6 +163,8 @@ model Zone {
   name       String // "Zone 1"
   valveState String @default("CLOSED") // OPEN | CLOSED
   sortOrder  Int    @default(0)
+  configured Boolean @default(true)
+  boundaryJson String?
 
   telemetry Telemetry[]
   commands  IrrigationCommand[]
@@ -188,9 +190,10 @@ model Sensor {
   /// Stable identifier shown in the UI and in the error log's Location column, e.g. "Z1-S3".
   key        String
   connection String   @default("ONLINE") // ONLINE | OFFLINE
-  lastSeenAt DateTime
+  lastSeenAt DateTime?
   batteryPct Int?
   sortOrder  Int      @default(0)
+  configured Boolean  @default(true)
   telemetry  Telemetry[]
 
   @@unique([farmId, key])

@@ -58,7 +58,7 @@ export const historyService = {
       zoneId: zone.id,
       zoneName: zone.name,
       connection: row.connection as Sensor["connection"],
-      lastSeenAt: row.lastSeenAt.toISOString(),
+      lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
       batteryPct: row.batteryPct,
     }));
     const hourly = new Map(

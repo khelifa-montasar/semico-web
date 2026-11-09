@@ -34,6 +34,7 @@ export const MAP_TILE_URL =
 export const MAP_ATTRIBUTION =
   "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community";
 export const MAP_MAX_ZOOM = 21;
+export const MAP_TILE_NATIVE_ZOOM = 19;
 
 // ── Soil moisture ────────────────────────────────────────────────────────────
 
