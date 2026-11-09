@@ -1,5 +1,7 @@
 import type {
   DeviceStatus,
+  FieldHistory,
+  FieldHistoryKind,
   ErrorLog,
   LatestTelemetry,
   MoisturePoint,
@@ -17,6 +19,10 @@ export interface SeriesParams {
 
 /** `/farms/me/telemetry` and the diagnostics beside it. */
 export const telemetryApi = {
+  history: (farmId: string, kind: FieldHistoryKind, id: string, signal?: AbortSignal) =>
+    api.get<FieldHistory>(`/farms/me/${kind === "zone" ? "zones" : "sensors"}/${encodeURIComponent(id)}/history`, {
+      headers: { "X-Farm-Id": farmId }, signal,
+    }),
   latest: (zoneId?: string) =>
     api.get<LatestTelemetry | null>(`/farms/me/telemetry/latest${qs({ zoneId })}`),
 

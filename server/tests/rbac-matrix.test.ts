@@ -137,6 +137,8 @@ const EXPECTED: Record<Access, Record<RoleKey, number>> = {
 };
 
 const MATRIX: Endpoint[] = [
+  { method: "get", path: "/api/v1/farms/me/zones/HISTORY_ZONE/history", access: "member" },
+  { method: "get", path: "/api/v1/farms/me/sensors/HISTORY_SENSOR/history", access: "member" },
   { method: "get", path: "/api/v1/admin/stats", access: "admin" },
   { method: "get", path: "/api/v1/admin/farms", access: "admin" },
   { method: "get", path: "/api/v1/admin/users", access: "admin" },
@@ -293,6 +295,8 @@ let cast: Cast;
 let superAdmin: SuperAdminUser;
 let pricingId: string;
 let postId: string;
+let historyZoneId: string;
+let historySensorId: string;
 /**
  * A throwaway worker the matrix's writes target, so no role's own account is altered.
  *
@@ -305,6 +309,8 @@ let targetId: string;
 beforeAll(async () => {
   await resetDatabase();
   cast = await buildCast("Matrix Farm");
+  historyZoneId = (await prisma.zone.findFirstOrThrow({ where: { farmId: cast.farmId } })).id;
+  historySensorId = (await prisma.sensor.create({ data: { farmId: cast.farmId, zoneId: historyZoneId, key: "MATRIX-HISTORY", lastSeenAt: new Date() } })).id;
   superAdmin = await createSuperAdmin();
   pricingId = (await prisma.pricingPlan.create({ data: { nameEn: "Plan", nameAr: "الخطة", price: 1 } })).id;
   postId = (await prisma.blogPost.create({ data: {
@@ -349,7 +355,7 @@ function tokenFor(role: RoleKey): string | null {
 }
 
 async function call(endpoint: Endpoint, role: RoleKey): Promise<number> {
-  const path = endpoint.path.replace("TARGET", targetId).replace("PRICING_ID", pricingId).replace("POST_ID", postId).replace("FARM_ID", cast.farmId);
+  const path = endpoint.path.replace("TARGET", targetId).replace("PRICING_ID", pricingId).replace("POST_ID", postId).replace("FARM_ID", cast.farmId).replace("HISTORY_ZONE", historyZoneId).replace("HISTORY_SENSOR", historySensorId);
   const token = tokenFor(role);
 
   const test = request(testApp())[endpoint.method](path);

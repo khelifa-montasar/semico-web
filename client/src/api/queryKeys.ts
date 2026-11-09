@@ -38,6 +38,8 @@ export const queryKeys = {
 
   telemetry: {
     all: ["telemetry"] as const,
+    history: (userId: string, farmId: string, kind: string, id: string) =>
+      [...queryKeys.telemetry.all, "history", userId, farmId, kind, id] as const,
     latest: (zoneId?: string) => [...queryKeys.telemetry.all, "latest", zoneId ?? "all"] as const,
     latestPerZone: () => [...queryKeys.telemetry.all, "latest-per-zone"] as const,
     series: (params: { interval?: string; range?: string; zoneId?: string }) =>

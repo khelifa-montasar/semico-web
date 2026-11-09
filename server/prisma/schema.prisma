@@ -191,6 +191,7 @@ model Sensor {
   lastSeenAt DateTime
   batteryPct Int?
   sortOrder  Int      @default(0)
+  telemetry  Telemetry[]
 
   @@unique([farmId, key])
   @@index([farmId, zoneId])
@@ -204,6 +205,8 @@ model Telemetry {
   zone            Zone?    @relation(fields: [zoneId], references: [id])
   recordedAt      DateTime
   sourceMessageId String? // MQTT source id, used to make QoS 1 redelivery idempotent
+  sensorId        String?
+  sensor          Sensor? @relation(fields: [sensorId], references: [id], onDelete: SetNull)
   rootMoisture    Float?
   surfaceMoisture Float?
   soilTempC       Float?
@@ -214,6 +217,7 @@ model Telemetry {
 
   @@index([farmId, recordedAt])
   @@index([zoneId, recordedAt])
+  @@index([farmId, sensorId, recordedAt])
   @@unique([farmId, sourceMessageId])
 }
 

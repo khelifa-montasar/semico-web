@@ -15,6 +15,9 @@ import { useRealtimeAlerts } from "../../../features/realtime/useRealtime";
 import { dashboardCriticalCount } from "../../../features/realtime/events";
 import { FarmMap } from "../../../features/map/FarmMap";
 import { toFarmMapData } from "../../../features/map/mapData";
+import { useFieldHistorySelection } from "../../../features/fieldHistory/useFieldHistory";
+import { FieldHistoryDialog } from "../../../features/fieldHistory/FieldHistoryDialog";
+import { FieldHistoryPicker } from "../../../features/fieldHistory/FieldHistoryPicker";
 import {
   useIrrigate,
   useLatestTelemetry,
@@ -64,6 +67,7 @@ export function Dashboard() {
   const sensors = useSensors();
   const zones = useZones();
   const farm = useFarm();
+  const history = useFieldHistorySelection(farm.data?.id);
   const realtimeAlerts = useRealtimeAlerts(farm.data?.id);
   const farmSettings = useFarmSettings(farm.data?.id);
   const weather = useWeather(farm.data?.latitude, farm.data?.longitude);
@@ -146,15 +150,19 @@ export function Dashboard() {
         <h2 className="text-[16px] mb-4" style={{ fontWeight: 500, color: c.text }}>
           {d.liveMap}
         </h2>
-        {mapZones.length === 0 ? (
+        {mapZones.length === 0 || !history.canSelect ? (
           <p className="text-[12px] py-10 text-center" style={{ color: c.sec }}>
-            {d.mapNoZones}
+            {farm.isError || zones.isError ? t.fieldHistory.contextError : !history.canSelect || zones.isLoading ? "…" : d.mapNoZones}
           </p>
         ) : (
           <FarmMap
             zones={mapZones}
             sensors={mapSensors}
             height={380}
+            selectedZoneId={history.selection?.zoneId}
+            selectedSensorId={history.selection?.kind === "sensor" ? history.selection.id : null}
+            onSelectZone={history.openZone}
+            onSelectSensor={history.openSensor}
             boundary={farm.data?.boundary ?? null}
             center={farm.data?.latitude != null && farm.data.longitude != null
               ? [farm.data.latitude, farm.data.longitude]
@@ -165,6 +173,8 @@ export function Dashboard() {
             sensorsPerZone={farmSettings.data?.sensorsPerZone}
           />
         )}
+        {history.canSelect && <FieldHistoryPicker zones={zones.data ?? []} sensors={sensors.data ?? []} onSelectZone={history.openZone} onSelectSensor={history.openSensor} />}
+        {history.selection && <FieldHistoryDialog selection={history.selection} onClose={history.close} onSelectSensor={history.openSensor} />}
       </Card>
 
       {/* ── Two-column layout ─────────────────────────────────────────────── */}

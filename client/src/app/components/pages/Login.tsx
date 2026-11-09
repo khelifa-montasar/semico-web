@@ -308,12 +308,6 @@ export function Login() {
           </svg>
           {l.continueGoogle}
         </button>
-
-        {tab === "signin" && (
-          <p className="text-[12px] text-[#9CA3AF] text-center mt-6" style={{ fontFamily: font }}>
-            Demo: owner@semico.dz · Semico2026!
-          </p>
-        )}
       </div>
     </div>
   );

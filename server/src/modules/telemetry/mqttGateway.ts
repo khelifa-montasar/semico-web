@@ -341,6 +341,7 @@ export class MqttGateway {
         where: {
           farmId: device.farmId,
           key: device.sensorKey,
+          zone: { farmId: device.farmId },
           ...(device.zoneId ? { zoneId: device.zoneId } : {}),
         },
         select: { id: true },
@@ -374,7 +375,7 @@ export class MqttGateway {
     this.options.publishFarmEvent({
       type: "telemetry.updated",
       farmId: device.farmId,
-      zoneId: device.zoneId ?? null,
+      zoneId: result.reading.zoneId,
       recordedAt: result.reading.recordedAt.toISOString(),
     });
     if (result.status) {
@@ -387,7 +388,7 @@ export class MqttGateway {
 
     if (message.rootMoisture != null) {
       if (message.rootMoisture < 18) {
-        this.lowMoistureDevices.set(deviceId, { farmId: device.farmId, zoneId: device.zoneId ?? null });
+        this.lowMoistureDevices.set(deviceId, { farmId: device.farmId, zoneId: result.reading.zoneId });
       } else {
         this.lowMoistureDevices.delete(deviceId);
       }

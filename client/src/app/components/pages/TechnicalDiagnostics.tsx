@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useTokens } from "../../hooks/useTokens";
 import { useFarm } from "../../../features/farms/useFarms";
@@ -7,6 +6,9 @@ import { useZones, useLatestTelemetry } from "../../../features/dashboard/useDas
 import { useSensors, useSystemHealth } from "../../../features/systemHealth/useSystemHealth";
 import { FarmMap } from "../../../features/map/FarmMap";
 import { toFarmMapData } from "../../../features/map/mapData";
+import { useFieldHistorySelection } from "../../../features/fieldHistory/useFieldHistory";
+import { FieldHistoryDialog } from "../../../features/fieldHistory/FieldHistoryDialog";
+import { FieldHistoryPicker } from "../../../features/fieldHistory/FieldHistoryPicker";
 import { farmTime } from "../../../lib/time";
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -29,8 +31,9 @@ export function TechnicalDiagnostics() {
   const c = useTokens();
   const sh = t.systemHealth;
   const tech = t.demoPlot.tech;
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const farm = useFarm();
+  const history = useFieldHistorySelection(farm.data?.id);
+  const selectedZoneId = history.selection?.zoneId ?? null;
   const farmSettings = useFarmSettings(farm.data?.id);
   const zones = useZones();
   const sensors = useSensors();
@@ -53,12 +56,13 @@ export function TechnicalDiagnostics() {
       <div className="grid lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-6 items-start">
         <section className="rounded-lg p-5" style={{ border: `1px solid ${c.border}`, background: c.card }}>
           <h2 className="text-[16px] mb-4" style={{ fontWeight: 500, color: c.text }}>{t.dashboard.liveMap}</h2>
-          {mapZones.length ? (
+          {mapZones.length && history.canSelect ? (
             <FarmMap
               zones={mapZones}
               sensors={mapSensors}
               height={520}
               selectedZoneId={selectedZoneId}
+              selectedSensorId={history.selection?.kind === "sensor" ? history.selection.id : null}
               boundary={farm.data?.boundary ?? null}
               center={farm.data?.latitude != null && farm.data.longitude != null
                 ? [farm.data.latitude, farm.data.longitude]
@@ -67,17 +71,19 @@ export function TechnicalDiagnostics() {
               landAreaHa={farm.data?.landAreaHa}
               zoneCount={farmSettings.data?.zoneCount}
               sensorsPerZone={farmSettings.data?.sensorsPerZone}
-              onSelectZone={setSelectedZoneId}
+              onSelectZone={history.openZone}
+              onSelectSensor={history.openSensor}
             />
           ) : (
             <p className="py-20 text-center text-[13px]" style={{ color: c.sec }}>
-              {zones.isLoading ? "…" : t.dashboard.mapNoZones}
+              {farm.isError || zones.isError ? t.fieldHistory.contextError : zones.isLoading || !history.canSelect ? "…" : t.dashboard.mapNoZones}
             </p>
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-[11px]" style={{ color: c.sec }}>
             <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full" style={{ background: c.green }} />{sh.online} {sh.sensorCol.toLowerCase()}</span>
             <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full" style={{ background: c.crit }} />{sh.offline} {sh.sensorCol.toLowerCase()}</span>
           </div>
+          {history.canSelect && <FieldHistoryPicker zones={zoneRows} sensors={sensorGroups} onSelectZone={history.openZone} onSelectSensor={history.openSensor} />}
         </section>
 
         <section className="rounded-lg p-5" style={{ border: `1px solid ${c.border}`, background: c.card }}>
@@ -134,7 +140,9 @@ export function TechnicalDiagnostics() {
             <button
               key={zone.id}
               type="button"
-              onClick={() => setSelectedZoneId((current) => current === zone.id ? null : zone.id)}
+              onClick={() => history.openZone(zone.id)}
+              aria-haspopup="dialog"
+              disabled={!history.canSelect}
               aria-pressed={selectedZoneId === zone.id}
               className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-start"
               style={{ border: `1px solid ${c.border}`, background: selectedZoneId === zone.id ? c.activeBg : "transparent" }}
@@ -148,6 +156,7 @@ export function TechnicalDiagnostics() {
           {zones.isLoading && <p className="text-[12px]" style={{ color: c.sec }}>…</p>}
         </div>
       </section>
+      {history.selection && <FieldHistoryDialog selection={history.selection} onClose={history.close} onSelectSensor={history.openSensor} />}
     </div>
   );
 }

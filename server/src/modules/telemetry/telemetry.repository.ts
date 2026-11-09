@@ -12,6 +12,7 @@ type TelemetryReadingInput = {
   zoneId?: string | null;
   recordedAt: Date;
   sourceMessageId?: string | null;
+  sensorId?: string | null;
   rootMoisture?: number | null;
   surfaceMoisture?: number | null;
   soilTempC?: number | null;
@@ -132,7 +133,38 @@ export const telemetryRepository = {
         });
         if (prior) return { reading: prior, duplicate: true };
 
-        const persisted = await tx.telemetry.create({ data: reading });
+        const sensor = sensorKey ? await tx.sensor.findFirst({
+          where: { farmId: reading.farmId, zoneId: reading.zoneId ?? undefined, key: sensorKey, zone: { farmId: reading.farmId } },
+          select: { id: true, zoneId: true },
+        }) : null;
+        if (sensorKey && !sensor) throw new Error("Configured sensor no longer exists on its farm");
+        const attributed = {
+          ...reading,
+          zoneId: sensor?.zoneId ?? reading.zoneId ?? null,
+          sensorId: sensor?.id ?? null,
+        };
+        for (const warning of [
+          { field: "rootMoisture" as const, threshold: 18, code: "MOISTURE_LOW", en: "Soil moisture dropped below 18%.", ar: "انخفضت رطوبة التربة عن 18٪." },
+          { field: "batteryPct" as const, threshold: 20, code: "BATTERY_LOW", en: "Device battery dropped below 20%.", ar: "انخفض مستوى بطارية الجهاز عن 20٪." },
+        ]) {
+          const value = attributed[warning.field];
+          if (value == null || value >= warning.threshold) continue;
+          const previous = await tx.telemetry.findFirst({
+            where: {
+              farmId: attributed.farmId, zoneId: attributed.zoneId, sensorId: attributed.sensorId,
+              recordedAt: { lte: attributed.recordedAt }, [warning.field]: { not: null },
+            },
+            orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
+          });
+          const previousValue = previous?.[warning.field];
+          if (previousValue != null && previousValue < warning.threshold) continue;
+          await tx.errorLog.create({ data: {
+            farmId: attributed.farmId, zoneId: attributed.zoneId, sensorKey: sensorKey ?? null,
+            occurredAt: attributed.recordedAt, component: warning.code,
+            messageEn: warning.en, messageAr: warning.ar,
+          } });
+        }
+        const persisted = await tx.telemetry.create({ data: attributed });
         await tx.deviceStatus.upsert({
           where: { farmId: reading.farmId },
           create: {

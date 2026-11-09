@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { telemetryController } from "./telemetry.controller.js";
+import { historyController } from "./history.controller.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireFarmAccess } from "../../middleware/rbac.js";
 
@@ -13,6 +14,9 @@ import { requireFarmAccess } from "../../middleware/rbac.js";
 export const telemetryRoutes = Router();
 
 const memberOnly = [requireAuth, requireFarmAccess];
+
+telemetryRoutes.get("/zones/:zoneId/history", ...memberOnly, historyController.zone);
+telemetryRoutes.get("/sensors/:sensorId/history", ...memberOnly, historyController.sensor);
 
 // `latest` before the series route so the more specific path is matched first.
 telemetryRoutes.get("/telemetry/latest", ...memberOnly, telemetryController.latest);

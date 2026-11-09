@@ -19,6 +19,7 @@ export * from "./domain/cms.js";
 export * from "./domain/user.js";
 export * from "./domain/farm.js";
 export * from "./domain/telemetry.js";
+export * from "./domain/fieldHistory.js";
 export * from "./domain/realtime.js";
 export * from "./domain/activity.js";
 export * from "./domain/irrigation.js";

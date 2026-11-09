@@ -13,7 +13,9 @@ import { MAP_ATTRIBUTION, MAP_MAX_ZOOM, MAP_TILE_URL, PLOT } from "../demoPlot/c
 import { bandToken } from "../demoPlot/format";
 import { plotDimensionsForArea, sensorSlotPositions, zoneRectangles, type LatLng } from "./geometry";
 import { useTokens } from "@/app/hooks/useTokens";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 import { useMapViewport, type MapViewport } from "./useMapViewport";
+import { selectionHandlers } from "./selectionHandlers";
 
 export interface FarmMapZone {
   id: string;
@@ -65,6 +67,7 @@ export function FarmMap({
   sensors = [],
   height = 420,
   selectedZoneId = null,
+  selectedSensorId = null,
   boundary = null,
   center,
   farmId,
@@ -73,11 +76,13 @@ export function FarmMap({
   sensorsPerZone = 2,
   rainfallIntensity = 0,
   onSelectZone,
+  onSelectSensor,
 }: {
   zones: FarmMapZone[];
   sensors?: FarmMapSensor[];
   height?: number;
   selectedZoneId?: string | null;
+  selectedSensorId?: string | null;
   boundary?: Array<[number, number]> | null;
   center?: LatLng;
   farmId?: string;
@@ -87,8 +92,10 @@ export function FarmMap({
   /** Millimetres applied to the rainfall-scenario overlay, 0..50. */
   rainfallIntensity?: number;
   onSelectZone?: (zoneId: string) => void;
+  onSelectSensor?: (sensorId: string, zoneId: string) => void;
 }) {
   const c = useTokens();
+  const { t } = useLanguage();
   const initialCenter = center ?? (boundary && boundary.length > 0
     ? [
         boundary.reduce((sum, point) => sum + point[0], 0) / boundary.length,
@@ -155,7 +162,7 @@ export function FarmMap({
                 opacity: zone.layoutOnly ? 0.5 : 0.95,
                 dashArray: zone.layoutOnly ? "4 4" : undefined,
               }}
-              eventHandlers={onSelectZone && !zone.layoutOnly ? { click: () => onSelectZone(zone.id) } : undefined}
+              eventHandlers={onSelectZone && !zone.layoutOnly ? selectionHandlers(`${t.fieldHistory.openDetails}: ${zone.name}`, () => onSelectZone(zone.id)) : undefined}
             >
               <Tooltip sticky>{rainfallIntensity > 0 ? `${label} · Rainfall ${rainfallIntensity} mm` : label}</Tooltip>
             </Polygon>
@@ -186,10 +193,12 @@ export function FarmMap({
               <CircleMarker
                 key={sensor.id}
                 center={position}
-                radius={4}
-                pathOptions={{ color: c.card, weight: 1, fillColor: online ? c.green : c.crit, fillOpacity: 1 }}
+                radius={sensor.id === selectedSensorId ? 8 : 6}
+                bubblingMouseEvents={false}
+                eventHandlers={onSelectSensor ? selectionHandlers(`${t.fieldHistory.openDetails}: ${sensor.key}`, () => onSelectSensor(sensor.id, zone.id)) : undefined}
+                pathOptions={{ color: sensor.id === selectedSensorId ? c.blue : c.card, weight: sensor.id === selectedSensorId ? 3 : 1, fillColor: online ? c.green : c.crit, fillOpacity: 1 }}
               >
-                <Tooltip>{sensor.key} · {online ? "Online" : "Offline"}</Tooltip>
+                <Tooltip>{sensor.key} · {online ? t.systemHealth.online : t.systemHealth.offline}</Tooltip>
               </CircleMarker>
             );
           });
