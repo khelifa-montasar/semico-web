@@ -17,12 +17,13 @@ No new hosting plan, VM, container registry, or database service is required for
 single-instance showcase. B1 already consumes your credits/budget; monitor Azure Cost Management.
 This change does not create, resize, or delete cloud resources, and **does not publish the app yet**.
 
-**Security gate:** production dependencies are remediated and the production audit is clean.
-The workflow still runs the **full** `npm audit --audit-level=high` gate. Vitest 5 passes the
-tests and removes the former critical test-pool findings. A development-only Picomatch ReDoS
-advisory currently covers every published release, so the full gate remains blocked until
-an upstream patched release is available or a separately authorized gate policy is agreed.
-Do not falsify dependency versions or silently bypass this gate. Offline audit messages are
+**Security gate:** the authorized blocking gate is
+`npm audit --omit=dev --audit-level=high`, covering the dependencies shipped after the
+packager's `npm prune --omit=dev`. Production dependencies are remediated and their audit is
+clean. The full audit remains a separate non-blocking report for the upstream-unpatched
+development-only Picomatch advisory, `GHSA-fc5q-39xc-vjpf`. Vitest 5 remains in use and removes
+the former critical test-pool findings. This policy does not ignore production vulnerabilities,
+falsify dependency versions, or remove the development warning. Offline audit messages are
 not a replacement for a fresh registry audit.
 
 ## How hosting works
@@ -130,14 +131,15 @@ git status
 npm run typecheck
 npm run lint -- --max-warnings 0
 npm test
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
 npm run build
 npm run package:azure
 ```
 
-The full audit currently fails on the unpatched development-only advisory. Do not bypass it.
-After dependency remediation and review, commit
-and push the changes to `main`. Open **GitHub → Actions → Deploy to Azure → Run workflow**
+The production audit must pass; high/critical shipping findings remain blocking. The full
+audit's development-only Picomatch findings are reported non-blockingly under the authorized
+policy. After review, commit and push the changes to `main`.
+Open **GitHub → Actions → Deploy to Azure → Run workflow**
 and choose `main`. Deployment is manual: checks/audit → build → ZIP package → OIDC login → deploy.
 
 For an authenticated local Azure CLI, after the same release checks:
