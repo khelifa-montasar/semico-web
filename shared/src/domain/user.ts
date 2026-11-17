@@ -22,6 +22,12 @@ export const educationInputSchema = z.object({
   year: z.string().trim().max(20).optional(),
 });
 
+export const updateExperienceSchema = experienceInputSchema
+  .extend({
+    isPresent: experienceInputSchema.shape.isPresent.unwrap(),
+  })
+  .partial();
+
 /** `bio` is capped at 500 — the Settings textarea shows a live `{n}/500` counter. */
 export const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
@@ -34,7 +40,11 @@ export const updateProfileSchema = z.object({
     .or(z.literal("")),
   wilayaId: z.string().trim().max(10).optional().or(z.literal("")),
   commune: z.string().trim().max(120).optional().or(z.literal("")),
-  bio: z.string().trim().max(500, "Bio must be 500 characters or fewer").optional(),
+  bio: z
+    .string()
+    .trim()
+    .max(500, "Bio must be 500 characters or fewer")
+    .optional(),
   avatarUrl: z.string().trim().max(500).optional().or(z.literal("")),
 });
 

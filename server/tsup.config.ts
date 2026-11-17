@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 /**
- * Bundles the server to a single ESM file.
+ * Bundles the server to ESM output.
  *
  * tsup (esbuild) rather than raw `tsc` on purpose: Node ESM requires explicit `.js` extensions on
  * every relative import, and `tsc` will not rewrite them. Bundling sidesteps that entirely and
@@ -9,7 +9,7 @@ import { defineConfig } from "tsup";
  * lives outside this package's rootDir.
  */
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: { index: "src/index.ts", "seed-super-admin": "prisma/seed-super-admin.ts" },
   outDir: "dist",
   format: ["esm"],
   target: "node20",

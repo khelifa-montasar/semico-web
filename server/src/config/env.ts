@@ -12,56 +12,124 @@ import { z } from "zod";
  * request — which is the usual failure mode when config is read ad hoc from `process.env`.
  */
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+const envSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
+    PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
+    SERVE_CLIENT: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    LOG_LEVEL: z
+      .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
+      .default("info"),
 
-  CORS_ORIGIN: z.string().default("http://localhost:5173"),
+    CORS_ORIGIN: z.string().default("http://localhost:5173"),
 
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+    DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
-  JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
-  REFRESH_TOKEN_PEPPER: z.string().min(32, "REFRESH_TOKEN_PEPPER must be at least 32 characters"),
+    JWT_ACCESS_SECRET: z
+      .string()
+      .min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
+    REFRESH_TOKEN_PEPPER: z
+      .string()
+      .min(32, "REFRESH_TOKEN_PEPPER must be at least 32 characters"),
 
-  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
-  REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).default(2_592_000),
+    ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
+    REFRESH_TOKEN_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(3600)
+      .default(2_592_000),
 
-  COOKIE_SECURE: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((value) => value === "true"),
-  COOKIE_DOMAIN: z.string().optional(),
+    COOKIE_SECURE: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    COOKIE_DOMAIN: z.string().optional(),
 
-  MQTT_URL: z.string().url().refine((value) => value.startsWith("mqtt://") || value.startsWith("mqtts://"), "MQTT_URL must use mqtt:// or mqtts://").optional(),
-  MQTT_USERNAME: z.string().optional(),
-  MQTT_PASSWORD: z.string().optional(),
-  MQTT_TOPIC_PREFIX: z.string().trim().regex(/^[A-Za-z0-9/_-]+$/).default("semico/v1/devices"),
-  MQTT_DEVICE_REGISTRY: z.string().default("{}").transform((value, ctx) => {
-    try {
-      const parsed = z.record(z.string().regex(/^[A-Za-z0-9_-]+$/), z.object({
-        farmId: z.string().min(1),
-        zoneId: z.string().min(1).optional(),
-        sensorKey: z.string().min(1).optional(),
-        kind: z.enum(["CONTROLLER", "GATEWAY", "SENSOR"]).default("CONTROLLER"),
-      }).strict()).parse(JSON.parse(value));
-      return parsed;
-    } catch {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "MQTT_DEVICE_REGISTRY must be a JSON object of device mappings" });
-      return z.NEVER;
+    MQTT_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z
+        .string()
+        .url()
+        .refine(
+          (value) =>
+            value.startsWith("mqtt://") || value.startsWith("mqtts://"),
+          "MQTT_URL must use mqtt:// or mqtts://",
+        )
+        .optional(),
+    ),
+    MQTT_USERNAME: z.string().optional(),
+    MQTT_PASSWORD: z.string().optional(),
+    MQTT_TOPIC_PREFIX: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9/_-]+$/)
+      .default("semico/v1/devices"),
+    MQTT_DEVICE_REGISTRY: z
+      .string()
+      .default("{}")
+      .transform((value, ctx) => {
+        try {
+          const parsed = z
+            .record(
+              z.string().regex(/^[A-Za-z0-9_-]+$/),
+              z
+                .object({
+                  farmId: z.string().min(1),
+                  zoneId: z.string().min(1).optional(),
+                  sensorKey: z.string().min(1).optional(),
+                  kind: z
+                    .enum(["CONTROLLER", "GATEWAY", "SENSOR"])
+                    .default("CONTROLLER"),
+                })
+                .strict(),
+            )
+            .parse(JSON.parse(value));
+          return parsed;
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "MQTT_DEVICE_REGISTRY must be a JSON object of device mappings",
+          });
+          return z.NEVER;
+        }
+      }),
+  })
+  .superRefine((value, ctx) => {
+    if (Boolean(value.MQTT_USERNAME) !== Boolean(value.MQTT_PASSWORD)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MQTT_PASSWORD"],
+        message: "MQTT_USERNAME and MQTT_PASSWORD must be set together",
+      });
     }
-  }),
-}).superRefine((value, ctx) => {
-  if (Boolean(value.MQTT_USERNAME) !== Boolean(value.MQTT_PASSWORD)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_PASSWORD"], message: "MQTT_USERNAME and MQTT_PASSWORD must be set together" });
-  }
-  if (value.MQTT_URL && Object.keys(value.MQTT_DEVICE_REGISTRY).length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_DEVICE_REGISTRY"], message: "At least one device mapping is required when MQTT_URL is configured" });
-  }
-  if (value.NODE_ENV === "production" && value.MQTT_URL?.startsWith("mqtt://")) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["MQTT_URL"], message: "Use mqtts:// for MQTT in production" });
-  }
-});
+    if (
+      value.MQTT_URL &&
+      Object.keys(value.MQTT_DEVICE_REGISTRY).length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MQTT_DEVICE_REGISTRY"],
+        message:
+          "At least one device mapping is required when MQTT_URL is configured",
+      });
+    }
+    if (
+      value.NODE_ENV === "production" &&
+      value.MQTT_URL?.startsWith("mqtt://")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MQTT_URL"],
+        message: "Use mqtts:// for MQTT in production",
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 
@@ -70,10 +138,14 @@ function loadEnv(): Env {
 
   if (!parsed.success) {
     const problems = parsed.error.issues
-      .map((issue) => `  • ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .map(
+        (issue) => `  • ${issue.path.join(".") || "(root)"}: ${issue.message}`,
+      )
       .join("\n");
     // Fail loudly and immediately — a half-configured server is worse than one that won't boot.
-    throw new Error(`Invalid environment configuration:\n${problems}\n\nSee server/.env.example.`);
+    throw new Error(
+      `Invalid environment configuration:\n${problems}\n\nSee server/.env.example.`,
+    );
   }
 
   return Object.freeze(parsed.data);

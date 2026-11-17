@@ -1,6 +1,7 @@
 import {
   educationInputSchema,
   experienceInputSchema,
+  updateExperienceSchema,
   updateProfileSchema,
 } from "@semico/shared";
 import { ApiError } from "../../lib/ApiError.js";
@@ -31,7 +32,7 @@ export const usersController = {
 
   updateExperience: asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParamSchema);
-    const input = parseBody(req, experienceInputSchema.partial());
+    const input = parseBody(req, updateExperienceSchema);
     return ok(res, await usersService.updateExperience(authOf(req), id, input));
   }),
 

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 /**
  * A bug hunt across the server's structure, configuration and data model.
@@ -17,8 +18,33 @@ import { describe, expect, it } from "vitest";
  * these conventions fails the build at the moment it is added.
  */
 
-const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const serverRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 const srcRoot = path.join(serverRoot, "src");
+
+function environmentProperties(): Map<string, string> {
+  const source = ts.createSourceFile(
+    "env.ts",
+    readFileSync(path.join(srcRoot, "config/env.ts"), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const properties = new Map<string, string>();
+  function visit(node: ts.Node): void {
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      /^[A-Z][A-Z0-9_]*$/.test(node.name.text)
+    ) {
+      properties.set(node.name.text, node.initializer.getText(source));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return properties;
+}
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -33,12 +59,17 @@ const read = (file: string) => readFileSync(file, "utf8");
 
 /** Files whose text matches, reported as repo-relative paths. */
 function matching(pattern: RegExp): string[] {
-  return sourceFiles.filter((file) => pattern.test(read(file))).map(relative).sort();
+  return sourceFiles
+    .filter((file) => pattern.test(read(file)))
+    .map(relative)
+    .sort();
 }
 
 describe("the module structure is uniform", () => {
   const modulesDir = path.join(srcRoot, "modules");
-  const modules = readdirSync(modulesDir).filter((entry) => statSync(path.join(modulesDir, entry)).isDirectory());
+  const modules = readdirSync(modulesDir).filter((entry) =>
+    statSync(path.join(modulesDir, entry)).isDirectory(),
+  );
 
   /**
    * Modules that legitimately do not have a service/repository pair.
@@ -72,15 +103,18 @@ describe("the module structure is uniform", () => {
 
   it("names only real directories on the thin-module list", () => {
     // A stale entry here would exempt a module from the layer check above without anyone noticing.
-    expect([...THIN_MODULES].filter((module) => !modules.includes(module))).toEqual([]);
+    expect(
+      [...THIN_MODULES].filter((module) => !modules.includes(module)),
+    ).toEqual([]);
   });
 
   it("mounts every module on the API router", () => {
     const routerSource = read("src/routes/index.ts");
     for (const module of modules) {
-      expect(routerSource, `modules/${module} is never mounted, so none of its routes are reachable`).toContain(
-        `${module}Routes`,
-      );
+      expect(
+        routerSource,
+        `modules/${module} is never mounted, so none of its routes are reachable`,
+      ).toContain(`${module}Routes`);
     }
   });
 
@@ -90,10 +124,15 @@ describe("the module structure is uniform", () => {
     // therefore from the RBAC audit.
     const offenders = sourceFiles
       .filter((file) => file.includes(".controller.ts"))
-      .filter((file) => /req\.auth\.(role|valveControl|workerType|status)/.test(read(file)))
+      .filter((file) =>
+        /req\.auth\.(role|valveControl|workerType|status)/.test(read(file)),
+      )
       .map(relative);
 
-    expect(offenders, "controllers are making authorization decisions instead of the route guards").toEqual([]);
+    expect(
+      offenders,
+      "controllers are making authorization decisions instead of the route guards",
+    ).toEqual([]);
   });
 });
 
@@ -107,30 +146,39 @@ describe("configuration is read in exactly one place", () => {
   it("requires the secrets rather than defaulting them", () => {
     // A defaulted secret is worse than a missing one: the service starts happily with a value an
     // attacker knows, and nothing anywhere reports a problem.
-    const env = read("src/config/env.ts");
+    const properties = environmentProperties();
 
     for (const secret of ["JWT_ACCESS_SECRET", "REFRESH_TOKEN_PEPPER"]) {
-      const line = env.split("\n").find((candidate) => candidate.trim().startsWith(`${secret}:`));
+      const line = properties.get(secret);
       expect(line, `${secret} is not declared in the env schema`).toBeTruthy();
-      expect(line, `${secret} must not have a default`).not.toContain(".default(");
-      expect(line, `${secret} must be length-checked`).toContain("min(32");
+      expect(line, `${secret} must not have a default`).not.toContain(
+        ".default(",
+      );
+      expect(line, `${secret} must be length-checked`).toMatch(
+        /\.min\s*\(\s*32\b/,
+      );
     }
   });
 
   it("documents every variable it validates", () => {
     // An undocumented required variable turns a first run into a debugging session.
-    const env = read("src/config/env.ts");
     const readme = read(path.join(serverRoot, "README.md"));
-    const keys = [...env.matchAll(/^\s{2}([A-Z][A-Z0-9_]*):/gm)].map((match) => match[1] ?? "");
+    const keys = [...environmentProperties().keys()];
 
     expect(keys.length).toBeGreaterThanOrEqual(10);
     for (const key of keys) {
-      expect(readme, `${key} is validated but never documented in server/README.md`).toContain(key);
+      expect(
+        readme,
+        `${key} is validated but never documented in server/README.md`,
+      ).toContain(key);
     }
   });
 
   it("keeps the environment file out of version control", () => {
-    const gitignore = readFileSync(path.join(serverRoot, "../.gitignore"), "utf8");
+    const gitignore = readFileSync(
+      path.join(serverRoot, "../.gitignore"),
+      "utf8",
+    );
     expect(gitignore).toMatch(/^\.env$/m);
   });
 });
@@ -170,13 +218,17 @@ describe("the type system is not being silenced", () => {
     expect(matching(/as unknown as/)).toEqual(["src/db/prisma.ts"]);
 
     const prisma = read(path.join(srcRoot, "db/prisma.ts"));
-    expect(prisma).toMatch(/globalThis as unknown as \{ prisma\?: PrismaClient \}/);
+    expect(prisma).toMatch(
+      /globalThis as unknown as \{ prisma\?: PrismaClient \}/,
+    );
   });
 });
 
 describe("the data model and the migrations agree", () => {
   const schema = read(path.join(serverRoot, "prisma/schema.prisma"));
-  const models = [...schema.matchAll(/^model\s+(\w+)/gm)].map((match) => match[1] ?? "");
+  const models = [...schema.matchAll(/^model\s+(\w+)/gm)].map(
+    (match) => match[1] ?? "",
+  );
 
   const migrationsDir = path.join(serverRoot, "prisma/migrations");
   const migrationNames = readdirSync(migrationsDir)
@@ -218,18 +270,26 @@ describe("the data model and the migrations agree", () => {
 
   it("has a model for every table", () => {
     const orphaned = [...tables].filter((table) => !models.includes(table));
-    expect(orphaned, "These tables are created by a migration but no model maps them").toEqual([]);
+    expect(
+      orphaned,
+      "These tables are created by a migration but no model maps them",
+    ).toEqual([]);
   });
 
   it("names migrations with a sortable timestamp prefix", () => {
     for (const name of migrationNames) {
-      expect(name, `migration "${name}" is not timestamp-prefixed`).toMatch(/^\d{14}_[a-z0-9_]+$/);
+      expect(name, `migration "${name}" is not timestamp-prefixed`).toMatch(
+        /^\d{14}_[a-z0-9_]+$/,
+      );
     }
   });
 
   it("has no empty migration", () => {
     for (const name of migrationNames) {
-      expect(read(path.join(migrationsDir, name, "migration.sql")).trim().length, `${name} is empty`).toBeGreaterThan(0);
+      expect(
+        read(path.join(migrationsDir, name, "migration.sql")).trim().length,
+        `${name} is empty`,
+      ).toBeGreaterThan(0);
     }
   });
 });
@@ -249,18 +309,32 @@ describe("translatable columns come in pairs", () => {
     const mismatches: string[] = [];
 
     for (const [, model, body] of blocks) {
-      const english = new Set([...(body ?? "").matchAll(/^\s*(\w+)En\b/gm)].map((match) => match[1] ?? ""));
-      const arabic = new Set([...(body ?? "").matchAll(/^\s*(\w+)Ar\b/gm)].map((match) => match[1] ?? ""));
+      const english = new Set(
+        [...(body ?? "").matchAll(/^\s*(\w+)En\b/gm)].map(
+          (match) => match[1] ?? "",
+        ),
+      );
+      const arabic = new Set(
+        [...(body ?? "").matchAll(/^\s*(\w+)Ar\b/gm)].map(
+          (match) => match[1] ?? "",
+        ),
+      );
 
-      for (const field of english) if (!arabic.has(field)) mismatches.push(`${model}.${field}En has no ${field}Ar`);
-      for (const field of arabic) if (!english.has(field)) mismatches.push(`${model}.${field}Ar has no ${field}En`);
+      for (const field of english)
+        if (!arabic.has(field))
+          mismatches.push(`${model}.${field}En has no ${field}Ar`);
+      for (const field of arabic)
+        if (!english.has(field))
+          mismatches.push(`${model}.${field}Ar has no ${field}En`);
     }
 
     expect(mismatches).toEqual([]);
   });
 
   it("has at least one bilingual pair, so the check above is not vacuous", () => {
-    const pairs = [...schema.matchAll(/^\s*(\w+)En\b/gm)].map((match) => match[1] ?? "");
+    const pairs = [...schema.matchAll(/^\s*(\w+)En\b/gm)].map(
+      (match) => match[1] ?? "",
+    );
     expect(pairs.length).toBeGreaterThanOrEqual(15);
   });
 });

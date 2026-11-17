@@ -10,7 +10,8 @@ export default defineConfig({
     setupFiles: ["./tests/setup.ts"],
     // Suites share one SQLite file; running them in parallel would race on it.
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    maxWorkers: 1,
+    fileParallelism: false,
     testTimeout: 20_000,
     include: ["tests/**/*.test.ts"],
   },

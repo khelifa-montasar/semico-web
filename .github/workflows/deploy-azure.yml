@@ -1,0 +1,62 @@
+name: Deploy to Azure
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: azure-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    env:
+      DATABASE_URL: file:./build-only.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Block deployment on high or critical vulnerabilities
+        run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm run lint -- --max-warnings 0
+      - run: npm test
+      - run: npm run build
+      - run: npm run package:azure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azure-package
+          path: dist/azure-deployment.zip
+          retention-days: 3
+
+  deploy:
+    needs: verify-package
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: azure-package
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy to the existing App Service
+        run: |
+          test -n "$AZURE_WEBAPP_NAME"
+          test -n "$AZURE_RESOURCE_GROUP"
+          az webapp deploy --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --src-path azure-deployment.zip --type zip

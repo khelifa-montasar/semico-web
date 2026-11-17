@@ -8,6 +8,8 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { globalLimiter } from "./middleware/rateLimit.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { apiRouter } from "./routes/index.js";
+import { fileURLToPath } from "node:url";
+import { serveClient } from "./lib/serveClient.js";
 
 /**
  * Builds the Express app.
@@ -22,7 +24,7 @@ import { apiRouter } from "./routes/index.js";
  *   body + cookie parsing → so rate-limit keying and guards can read them
  *   routes                → then the 404 and the error handler, always last
  */
-export function createApp(): Express {
+export function createApp(options: { serveClient?: boolean; clientDirectory?: string } = {}): Express {
   const app = express();
 
   // Behind the Vite dev proxy / a reverse proxy in production, so `req.ip` and the rate limiter
@@ -31,7 +33,12 @@ export function createApp(): Express {
   app.disable("x-powered-by");
 
   app.use(requestLogger);
-  app.use(helmet());
+  app.use(helmet({ contentSecurityPolicy: { directives: {
+    "img-src": ["'self'", "data:", "https:"],
+    "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
+    "connect-src": ["'self'", "wss:", "https://api.open-meteo.com"],
+  } } }));
 
   app.use(
     cors({
@@ -62,6 +69,10 @@ export function createApp(): Express {
   });
 
   app.use("/api/v1", globalLimiter, apiRouter);
+
+  if (options.serveClient ?? env.SERVE_CLIENT) {
+    serveClient(app, options.clientDirectory ?? fileURLToPath(new URL("../../client/dist/", import.meta.url)));
+  }
 
   // Order is required: 404 first, then the error handler as the final middleware.
   app.use(notFoundHandler);

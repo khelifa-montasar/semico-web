@@ -7,6 +7,7 @@
  */
 
 process.env.NODE_ENV = "test";
+process.env.SERVE_CLIENT = "false";
 process.env.LOG_LEVEL = "silent";
 
 // A dedicated database file so a test run can never touch dev.db.

@@ -12,6 +12,8 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "node deploy/start-production.mjs",
+    "package:azure": "sh deploy/package-azure.sh",
     "dev": "concurrently -n server,client -c green,blue \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
@@ -35,6 +37,10 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

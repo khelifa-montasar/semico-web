@@ -11,15 +11,24 @@ import { zoneBoundarySchema, type ZoneBoundary } from "./zoneLayout.js";
  * role gates worker management; `valveControl` is what gates the valves.
  */
 
-const latitudeSchema = z.number().min(-90, "Latitude out of range").max(90, "Latitude out of range");
-const longitudeSchema = z.number().min(-180, "Longitude out of range").max(180, "Longitude out of range");
+const latitudeSchema = z
+  .number()
+  .min(-90, "Latitude out of range")
+  .max(90, "Latitude out of range");
+const longitudeSchema = z
+  .number()
+  .min(-180, "Longitude out of range")
+  .max(180, "Longitude out of range");
 
 function requireCoordinatePair(
   value: { latitude?: number | null; longitude?: number | null },
   ctx: z.RefinementCtx,
 ) {
   if ((value.latitude === undefined) !== (value.longitude === undefined)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Latitude and longitude must be provided together" });
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Latitude and longitude must be provided together",
+    });
   }
 }
 
@@ -42,19 +51,30 @@ export const farmSettingsSchema = z.object({
   moistureThreshold: z.coerce.number().int().min(10).max(80),
   autoIrrigation: z.boolean(),
   pushNotifications: z.boolean(),
-  timezone: z.string().trim().min(1).refine(isIanaTimezone, "Enter a valid IANA timezone"),
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .refine(isIanaTimezone, "Enter a valid IANA timezone"),
   zoneCount: z.coerce.number().int().min(1).max(MAX_ZONE_COUNT),
   sensorsPerZone: z.coerce.number().int().min(1).max(MAX_SENSORS_PER_ZONE),
 });
 
-export const updateFarmSchema = z.object({
-  name: z.string().trim().min(2).max(120).optional(),
-  wilayaId: z.string().trim().max(10).optional().or(z.literal("")),
-  commune: z.string().trim().max(120).optional().or(z.literal("")),
-  landAreaHa: z.coerce.number().nonnegative().max(1_000_000).nullable().optional(),
-  latitude: latitudeSchema.nullable().optional(),
-  longitude: longitudeSchema.nullable().optional(),
-}).superRefine(requireCoordinatePair);
+export const updateFarmSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    wilayaId: z.string().trim().max(10).optional().or(z.literal("")),
+    commune: z.string().trim().max(120).optional().or(z.literal("")),
+    landAreaHa: z.coerce
+      .number()
+      .nonnegative()
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    latitude: latitudeSchema.nullable().optional(),
+    longitude: longitudeSchema.nullable().optional(),
+  })
+  .superRefine(requireCoordinatePair);
 
 /**
  * An owner may hold at most this many farms (V2).
@@ -65,14 +85,21 @@ export const updateFarmSchema = z.object({
 export const MAX_FARMS_PER_OWNER = 3;
 
 /** Creating a farm. `name` is the only required field; the rest can be filled in later. */
-export const createFarmSchema = z.object({
-  name: z.string().trim().min(2, "Farm name is required").max(120),
-  wilayaId: z.string().trim().max(10).optional().or(z.literal("")),
-  commune: z.string().trim().max(120).optional().or(z.literal("")),
-  landAreaHa: z.coerce.number().nonnegative().max(1_000_000).nullable().optional(),
-  latitude: latitudeSchema.nullable().optional(),
-  longitude: longitudeSchema.nullable().optional(),
-}).superRefine(requireCoordinatePair);
+export const createFarmSchema = z
+  .object({
+    name: z.string().trim().min(2, "Farm name is required").max(120),
+    wilayaId: z.string().trim().max(10).optional().or(z.literal("")),
+    commune: z.string().trim().max(120).optional().or(z.literal("")),
+    landAreaHa: z.coerce
+      .number()
+      .nonnegative()
+      .max(1_000_000)
+      .nullable()
+      .optional(),
+    latitude: latitudeSchema.nullable().optional(),
+    longitude: longitudeSchema.nullable().optional(),
+  })
+  .superRefine(requireCoordinatePair);
 
 export type CreateFarmInput = z.infer<typeof createFarmSchema>;
 
@@ -108,10 +135,13 @@ export const zoneInputSchema = z.object({
   boundary: zoneBoundarySchema.nullable().optional(),
 });
 
-export const updateZoneSchema = zoneInputSchema.partial().refine(
-  (input) => Object.keys(input).length > 0,
-  "At least one zone field is required",
-);
+export const updateZoneSchema = zoneInputSchema
+  .extend({ sortOrder: zoneInputSchema.shape.sortOrder.unwrap() })
+  .partial()
+  .refine(
+    (input) => Object.keys(input).length > 0,
+    "At least one zone field is required",
+  );
 
 export type ZoneInput = z.infer<typeof zoneInputSchema>;
 export type UpdateZoneInput = z.infer<typeof updateZoneSchema>;
@@ -149,8 +179,14 @@ export const farmBoundarySchema = z.object({
   boundary: z
     .array(
       z.tuple([
-        z.number().min(-90, "Latitude out of range").max(90, "Latitude out of range"),
-        z.number().min(-180, "Longitude out of range").max(180, "Longitude out of range"),
+        z
+          .number()
+          .min(-90, "Latitude out of range")
+          .max(90, "Latitude out of range"),
+        z
+          .number()
+          .min(-180, "Longitude out of range")
+          .max(180, "Longitude out of range"),
       ]),
     )
     .min(3, "A boundary needs at least three points")

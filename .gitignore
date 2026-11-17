@@ -161,3 +161,10 @@ vite.config.ts.timestamp-*
 *.env
 !.env.example
 *.db
+publish-profile.xml
+publish-profile.xml
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

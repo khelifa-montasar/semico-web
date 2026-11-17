@@ -134,6 +134,7 @@ readable message rather than surfacing as an `undefined` deep inside a request.
 |---|---|---|
 | `NODE_ENV` | `development` | |
 | `PORT` | `4000` | |
+| `SERVE_CLIENT` | `false` | Serve `client/dist` and SPA routes from the API origin; production startup enables this |
 | `LOG_LEVEL` | `info` | pino level |
 | `CORS_ORIGIN` | `http://localhost:5173` | comma-separated list |
 | `DATABASE_URL` | — | `file:./dev.db` |

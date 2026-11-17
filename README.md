@@ -2,6 +2,10 @@
 
 The Semico web app — a public marketing site and an authenticated farm dashboard.
 
+For full-stack Azure hosting on the existing `semico-khelifa` App Service, follow
+[docs/azure-deployment.md](docs/azure-deployment.md). The release workflow blocks high/critical
+dependency findings; do not upload local databases, secrets, or publish profiles.
+
 React 18 · Vite 6 · Tailwind 4 · react-router 7 · TanStack Query.
 
 ---
@@ -167,4 +171,3 @@ just did.
   `as unknown as TranslationSet`, so the compiler will not catch a key missing from `ar`.
 - Prefer logical CSS properties (`ms-`/`me-`, `ps-`/`pe-`, `borderInlineEnd`) so RTL mirrors for
   free rather than needing per-component branching.
-

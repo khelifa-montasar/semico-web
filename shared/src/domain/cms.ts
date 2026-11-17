@@ -30,6 +30,11 @@ export const createPricingPlanSchema = z
   .strict();
 
 export const updatePricingPlanSchema = createPricingPlanSchema
+  .extend({
+    currency: createPricingPlanSchema.shape.currency.unwrap(),
+    features: createPricingPlanSchema.shape.features.unwrap(),
+    isActive: createPricingPlanSchema.shape.isActive.unwrap(),
+  })
   .partial()
   .refine(
     (input) => Object.keys(input).length > 0,
@@ -73,6 +78,15 @@ export const createBlogPostSchema = z
   .strict();
 
 export const updateBlogPostSchema = createBlogPostSchema
+  .extend({
+    excerptEn: createBlogPostSchema.shape.excerptEn.unwrap(),
+    excerptAr: createBlogPostSchema.shape.excerptAr.unwrap(),
+    category: createBlogPostSchema.shape.category.unwrap(),
+    publishedAt: createBlogPostSchema.shape.publishedAt.unwrap(),
+    published: createBlogPostSchema.shape.published.unwrap(),
+    coverImageUrl: createBlogPostSchema.shape.coverImageUrl.unwrap(),
+    sortOrder: createBlogPostSchema.shape.sortOrder.unwrap(),
+  })
   .partial()
   .refine(
     (input) => Object.keys(input).length > 0,
