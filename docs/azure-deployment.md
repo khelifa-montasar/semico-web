@@ -15,7 +15,10 @@
 
 No new hosting plan, VM, container registry, or database service is required for this small,
 single-instance showcase. B1 already consumes your credits/budget; monitor Azure Cost Management.
-This change does not create, resize, or delete cloud resources, and **does not publish the app yet**.
+The app is now published and verified at `https://semico-khelifa.azurewebsites.net`.
+Deployment changed only the existing App Service; no hosting resources were created, resized,
+moved, or deleted. Admin login succeeded and `BOOTSTRAP_SUPER_ADMIN=false` is confirmed.
+The operator must save and manually remove the retained administrator-password setting.
 
 **Security gate:** the authorized blocking gate is
 `npm audit --omit=dev --audit-level=high`, covering the dependencies shipped after the
@@ -102,6 +105,14 @@ Your repository is `khelifa-montasar/semico-web`, branch `main`.
 The local publish profile is secret and its lookup returned HTTP 401. Do not commit it or
 enable basic publishing authentication merely to work around that failure. The workflow uses
 short-lived Microsoft Entra/GitHub OIDC credentials instead.
+
+**Current automation limitation:** GitHub emits an immutable-ID subject such as
+`repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:production`, while the existing Azure federation
+uses the legacy name-only subject. The repository API did not disable immutable subjects.
+The federation was not changed because it is outside the app-only resource boundary.
+The verification job passed; publication was completed through the authenticated local CLI
+path below. Future automatic deployments require the existing federation's subject to match
+the actual token, under separate authorization. This does not affect the live site's availability.
 
 1. GitHub repository **Settings → Environments**: create `production`.
 2. Create the permitted user-assigned managed identity `semico-deploy-id` in `semico-rg`.
