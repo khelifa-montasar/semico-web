@@ -3,6 +3,66 @@
 Target: <https://semico-khelifa.azurewebsites.net>, existing app `semico-khelifa` in `semico-rg`.
 Audit date: November 18, 2026. No other Azure resource may be changed.
 
+## Final live checklist
+
+Application release: `c9124353e7299048461fc8e4a359c4832313d954`.
+[Automatic deployment 44367413808](https://github.com/khelifa-montasar/semico-web/actions/runs/44367413808)
+and the separate CI workflow are green. Verification includes 561 server tests, 333 client tests,
+typechecks, lint, production dependency audit, build, packaging, OIDC login, and deployment.
+
+The hash-checked content script ran **once** inside the existing app container. Its transaction
+inserted 58 wilayas, 3 service plans, 2 pricing plans, 6 products, and 4 blog posts: **73 rows**.
+Pre/post SELECT/count checks confirm every non-content table is unchanged, including the existing
+2 users, 1 farm, 3 zones, 1 booking, 4 refresh-token records, and 8 audit records. No accounts,
+credentials, farms, device readings, enquiries, appointments, or histories were imported.
+The original backup remains `/home/semico-data/semico.backup-20261118.db` (401408 bytes).
+
+All URLs below are relative to <https://semico-khelifa.azurewebsites.net>.
+
+| Feature | Final status | Live evidence / URL |
+| --- | --- | --- |
+| Services/pricing | WORKING | `/services` renders Residential/Farm; `/api/v1/content/pricing-plans` 200, 2 rows |
+| Service reference plans | WORKING | `/api/v1/content/service-plans` 200, Residential/Farm/Custom, 3 rows |
+| Catalog | WORKING | `/products` renders 6 cards; `/api/v1/content/products` 200, 6 rows |
+| Blog and filters | WORKING | `/blog` renders 4 articles; Guides/Technology each show 2; all 4 blog-record endpoints return 200 |
+| Arabic/RTL | WORKING | Browser switches pricing and blog titles to Arabic and sets `lang=ar`, `dir=rtl` |
+| Home/about base content | WORKING | `/` and `/about` render; ROI slider updates modelled savings; booking availability loads |
+| Team/testimonials/marketing metrics | EMPTY-DATA, withheld | Public collections return 200 with 0 rows; personal-looking/unverified copy was not approved |
+| Wilaya reference data | WORKING | `/api/v1/reference/wilayas` 200, 58 rows; source labels/coverage preserved |
+| Login form and anonymous guards | WORKING | `/login` renders; invalid login/register return 400; guarded APIs return 401 |
+| Positive admin login/CMS/oversight | BLOCKED: credentials | Admin account exists and pricing/blog rows are present; password absent from app settings and private environment |
+| Farm dashboard/maps/settings/profiles/workers/activity/audit | BLOCKED: positive owner checks | Every handler is deployed/protected; all farm routes redirect anonymous browsers to `/login`; existing records remain intact |
+| Telemetry/system-health/diagnostics/analytics/export data | EMPTY-DATA | No sensor telemetry imported; real device onboarding/data required; protected handlers remain reachable |
+| Consultation booking | WORKING reads/validation | `/api/v1/bookings/availability` 200; invalid creation 400; existing booking preserved; no test appointment submitted |
+| Lead capture | WORKING modal/validation | Pricing CTA opens the lead form; invalid creation 400; no false enquiry submitted |
+| WebSocket rejection/origin guards | WORKING | `wss://semico-khelifa.azurewebsites.net/api/v1/realtime` rejects missing ticket with 401, wrong origin with 403 |
+| Positive WebSocket 101 handshake | BLOCKED: owner/worker credentials | Requires a legitimate farm-member ticket; SUPER_ADMIN intentionally cannot obtain one |
+| Real MQTT broker/physical actuation | INTENTIONALLY-OFF | MQTT_URL remains unset; no real broker enabled; no physical execution claimed |
+| Demo/test accounts and farm fixtures | INTENTIONALLY-OFF | Production seed writes only five public/reference tables; existing identities remain unchanged |
+| Static/media assets | WORKING | All 46 deployed JS/CSS/PNG assets match local SHA-256; zero broken browser images; no upload transfer needed |
+| Unknown API/assets | WORKING | Unknown `/api/v1/...` and `/assets/...` return JSON 404, not SPA HTML; unknown WSS path returns 404 |
+| Health/readiness | WORKING | `/healthz`, `/readyz`, `/api/v1/health` 200; readiness database `up` |
+| Current app logs | WORKING | Connected log tail after deployment reports zero fresh error/fatal records; expected anonymous/validation warnings remain |
+
+Rendered HTML from `/services`, `/products`, and `/blog` was inspected after API content loaded;
+these pages no longer show empty states. Browser checks found zero uncaught exceptions and
+broken images. All 12 concrete admin/farm destinations correctly redirect anonymous sessions
+to login. All 84 feature API signatures were reprobed after seeding; expected 200/400/401/resource
+404 results are intact. CMS ID parameters accept the deterministic content IDs.
+
+### Remaining operator decisions
+
+- Provide existing administrator and farm-member credentials securely for positive login,
+  authenticated dashboard/CMS reads, and a successful WSS 101 test. Do not paste credentials
+  into public logs/chat, reset passwords, enable bootstrap, or create demo accounts to bypass this.
+- Approve or replace public team profiles, attributed testimonials, and marketing statistics
+  before publishing them. They remain excluded, not silently anonymized or fabricated.
+- Supply full article bodies if article-detail reading is desired; the local project only
+  supplies the four titles/excerpts. Review copied pricing/trial copy and the modelled ROI formula
+  against actual business offers; none is derived from real farm telemetry.
+- Real telemetry and physical-control verification require separately authorized device/broker
+  onboarding. Leave the real broker off for this showcase; do not manufacture sensor history.
+
 ## Root cause and baseline evidence
 
 The deployed server, homepage, and all 46 client JS/CSS/logo assets match their local SHA-256
