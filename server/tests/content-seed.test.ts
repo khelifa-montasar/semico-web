@@ -41,6 +41,19 @@ async function tableCounts() {
 }
 
 describe("public-only production content seed", () => {
+  it("forwards explicit apply from the root npm wrapper to the safe CLI", () => {
+    const environment = { ...process.env };
+    delete environment.DATABASE_URL;
+    const result = spawnSync("npm", ["run", "db:seed:content", "--", "--apply"], {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      env: environment,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain('"mode": "preview"');
+    expect(result.stderr).toContain("Public content seed failed.");
+  });
+
   it("previews without a database connection or Prisma environment loading", () => {
     const environment = { ...process.env };
     delete environment.DATABASE_URL;

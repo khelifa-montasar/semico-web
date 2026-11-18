@@ -151,6 +151,15 @@ Preview without connecting to a database:
 node server/dist/seed-content.js --dry-run
 ```
 
+The root workspace alias also previews by default and forwards explicit CLI arguments:
+
+```bash
+npm run db:seed:content -- --dry-run
+```
+
+Passing `--apply` without an explicit DATABASE_URL must fail, not silently preview or load a
+development `.env`. A regression test covers flag forwarding through this root npm alias.
+
 After deployment, use Azure CLI SSH to the existing app only:
 
 ```bash
