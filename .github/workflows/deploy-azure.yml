@@ -1,6 +1,8 @@
 name: Deploy to Azure
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -60,6 +62,6 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Deploy to the existing App Service
         run: |
-          test -n "$AZURE_WEBAPP_NAME"
-          test -n "$AZURE_RESOURCE_GROUP"
+          test "$AZURE_WEBAPP_NAME" = "semico-khelifa"
+          test "$AZURE_RESOURCE_GROUP" = "semico-rg"
           az webapp deploy --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --src-path azure-deployment.zip --type zip --clean true

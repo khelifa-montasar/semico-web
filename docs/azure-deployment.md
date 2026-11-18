@@ -18,7 +18,8 @@ single-instance showcase. B1 already consumes your credits/budget; monitor Azure
 The app is now published and verified at `https://semico-khelifa.azurewebsites.net`.
 Deployment changed only the existing App Service; no hosting resources were created, resized,
 moved, or deleted. Admin login succeeded and `BOOTSTRAP_SUPER_ADMIN=false` is confirmed.
-The operator must save and manually remove the retained administrator-password setting.
+The administrator-password setting has been removed. Keep the existing password in the
+operator's password manager; never recreate a default account to verify the deployment.
 
 **Security gate:** the authorized blocking gate is
 `npm audit --omit=dev --audit-level=high`, covering the dependencies shipped after the
@@ -92,41 +93,34 @@ After creation, set `BOOTSTRAP_SUPER_ADMIN=false`. Save the password securely, t
 The account stays in SQLite. Bootstrap does not reset an existing password, reactivate an
 account, or promote an existing farm owner/worker.
 
-Azure starts with a **fresh database**. Local accounts, demo passwords, farms, telemetry, and
-catalog data are not uploaded. Populate pricing/blog content in the admin portal and import
-other reviewed public content separately if needed.
+The initial rollout deliberately started with a **fresh database**. Local accounts, passwords,
+farms, telemetry, and personal records are not uploaded. The dedicated public-only content seed
+described in [the feature audit](azure-feature-audit.md) restores pricing, catalog, blog summaries,
+and wilaya reference data without importing identities or farm data. It is a separate manual
+operation, never part of startup or automatic deployment. Administrators can also edit
+pricing/blog content in the admin portal.
 Never run `db:seed` or `db:reset` on the online service: the development seed resets data and
 creates known demo credentials. A current-data migration needs a separate consistent backup,
 credential rotation, and review before physical-control integrations are connected.
 
-## 3. Connect GitHub with OIDC
+## 3. Existing GitHub OIDC connection
 
 Your repository is `khelifa-montasar/semico-web`, branch `main`.
 The local publish profile is secret and its lookup returned HTTP 401. Do not commit it or
 enable basic publishing authentication merely to work around that failure. The workflow uses
 short-lived Microsoft Entra/GitHub OIDC credentials instead.
 
-**Current automation limitation:** GitHub emits an immutable-ID subject such as
-`repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:production`, while the existing Azure federation
-uses the legacy name-only subject. The repository API did not disable immutable subjects.
-The federation was not changed because it is outside the app-only resource boundary.
-The verification job passed; publication was completed through the authenticated local CLI
-path below. Future automatic deployments require the existing federation's subject to match
-the actual token, under separate authorization. This does not affect the live site's availability.
+**Existing connection verified:** the November 18 workflow completed both OIDC login and
+deployment successfully. The earlier immutable-subject mismatch is historical, not a current
+deployment blocker. This content rollout does not create or modify identities, federation,
+role assignments, hosting plans, or other Azure resources.
 
-1. GitHub repository **Settings → Environments**: create `production`.
-2. Create the permitted user-assigned managed identity `semico-deploy-id` in `semico-rg`.
-   It supplies the service principal/client ID used by `azure/login`; no separate application
-   registration or client-secret credential is needed.
-3. Add the identity's `github-production` federated credential with issuer
-   `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`, and
-   subject `repo:khelifa-montasar/semico-web:environment:production`.
-4. App Service **Access control (IAM)**: assign the identity's service principal
-   **Website Contributor**, scoped to this app rather than subscription-wide Owner.
-5. Add GitHub `production` environment secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
-   `AZURE_SUBSCRIPTION_ID`, using your Azure registration/subscription IDs.
-6. Add environment variables: `AZURE_WEBAPP_NAME=semico-khelifa` and
-   `AZURE_RESOURCE_GROUP=semico-rg`.
+The existing GitHub `production` environment supplies `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+and `AZURE_SUBSCRIPTION_ID` as secrets. Its variables are
+`AZURE_WEBAPP_NAME=semico-khelifa` and `AZURE_RESOURCE_GROUP=semico-rg`.
+The workflow checks those exact targets before deploying. If OIDC later fails, investigate the
+existing federation under separate authorization instead of enabling publishing passwords or
+creating replacement resources.
 
 Use protection/review rules where your GitHub plan supports them. No Azure client secret or
 publish profile is needed. The workflow deploys existing resources, not new paid services.
@@ -150,8 +144,9 @@ npm run package:azure
 The production audit must pass; high/critical shipping findings remain blocking. The full
 audit's development-only Picomatch findings are reported non-blockingly under the authorized
 policy. After review, commit and push the changes to `main`.
-Open **GitHub → Actions → Deploy to Azure → Run workflow**
-and choose `main`. Deployment is manual: checks/audit → build → ZIP package → OIDC login → deploy.
+Deployment runs automatically on pushes to `main`: checks/audit → build → ZIP package → OIDC
+login → deploy. **GitHub → Actions → Deploy to Azure → Run workflow** remains available for
+manual releases of `main`. Neither path runs the content seed.
 
 For an authenticated local Azure CLI, after the same release checks:
 

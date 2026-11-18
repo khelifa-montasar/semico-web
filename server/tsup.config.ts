@@ -9,7 +9,11 @@ import { defineConfig } from "tsup";
  * lives outside this package's rootDir.
  */
 export default defineConfig({
-  entry: { index: "src/index.ts", "seed-super-admin": "prisma/seed-super-admin.ts" },
+  entry: {
+    index: "src/index.ts",
+    "seed-super-admin": "prisma/seed-super-admin.ts",
+    "seed-content": "prisma/seed-content.ts",
+  },
   outDir: "dist",
   format: ["esm"],
   target: "node20",
