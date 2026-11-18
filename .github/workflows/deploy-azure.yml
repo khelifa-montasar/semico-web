@@ -62,4 +62,4 @@ jobs:
         run: |
           test -n "$AZURE_WEBAPP_NAME"
           test -n "$AZURE_RESOURCE_GROUP"
-          az webapp deploy --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --src-path azure-deployment.zip --type zip
+          az webapp deploy --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --src-path azure-deployment.zip --type zip --clean true

@@ -25,6 +25,7 @@ cp -a node_modules "$staging/node_modules"
 npm prune --omit=dev --ignore-scripts --no-audit --offline --prefix "$staging"
 test -f "$staging/node_modules/prisma/build/index.js"
 test -f "$staging/node_modules/.prisma/client/index.js"
+test -f "$staging/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node"
 node -e "require(process.argv[1])" "$staging/node_modules/argon2"
 archive="$root/dist/azure-deployment.zip"
 if [ -f "$archive" ]; then rm "$archive"; fi

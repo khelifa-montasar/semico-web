@@ -146,11 +146,16 @@ For an authenticated local Azure CLI, after the same release checks:
 
 ```bash
 az webapp deploy --name semico-khelifa --resource-group semico-rg \
-  --src-path dist/azure-deployment.zip --type zip
+  --src-path dist/azure-deployment.zip --type zip --clean true
 ```
 
 The GitHub workflow builds on Linux Node 22 so Prisma and Argon2 match your Azure runtime.
 Do not package `node_modules` from a different operating system.
+
+Prisma explicitly includes the `debian-openssl-3.0.x` query engine required by the Azure
+Node 22 image, even when the build runner detects OpenSSL 1.1 as its native target.
+Deployments clean only the application code directory so stale Oryx manifests/compressed
+dependency archives cannot override the new package. The database is outside that directory.
 
 ## 5. Verify online
 
