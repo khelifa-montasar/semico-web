@@ -1,5 +1,10 @@
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
+import {
+  APPROVED_STATS as STATS,
+  APPROVED_TEAM as TEAM,
+  APPROVED_TESTIMONIALS as TESTIMONIALS,
+} from "./seeds/landing-content-data.js";
 
 /**
  * Seeds the database with the content that currently lives hardcoded in the client.
@@ -97,34 +102,8 @@ const BLOG_POSTS = [
     excerptAr: "كيف تؤثر تركيبة التربة والمناخ على الاحتفاظ بالماء وجداول الري المثلى." },
 ];
 
-const STATS = [
-  { valueEn: "2,400+", valueAr: "2,400+", labelEn: "Active Systems", labelAr: "نظام نشط", sortOrder: 0 },
-  { valueEn: "12M", valueAr: "12M", labelEn: "Liters Saved", labelAr: "لتر موفّر", sortOrder: 1 },
-  { valueEn: "38", valueAr: "38", labelEn: "Wilayas Covered", labelAr: "ولاية مشمولة", sortOrder: 2 },
-  { valueEn: "98%", valueAr: "98%", labelEn: "Uptime", labelAr: "وقت التشغيل", sortOrder: 3 },
-];
 
-const TEAM = [
-  { initials: "KM", name: "Khelifa Montasar", roleEn: "Co-Founder & CEO", roleAr: "المؤسس المشارك والرئيس التنفيذي",
-    bioEn: "Agricultural engineer with 10+ years of experience in precision irrigation. Passionate about bringing smart farming to every Algerian farmer.",
-    bioAr: "مهندس زراعي مع خبرة تزيد عن 10 سنوات في الري الدقيق. متحمس لتقديم الزراعة الذكية لكل مزارع جزائري.",
-    linkedinUrl: "https://linkedin.com", sortOrder: 0 },
-  { initials: "BN", name: "Benrakaa Nasser", roleEn: "Co-Founder & CTO", roleAr: "المؤسس المشارك والرئيس الفني",
-    bioEn: "Electronics and IoT specialist. Leads hardware development and ensures Semico's devices are reliable, low-power, and field-ready.",
-    bioAr: "خبير في الإلكترونيات وتقنية المعلومات. يقود تطوير الأجهزة ويضمن أن أجهزة سيميكو موثوقة ومحملة بطاقة ضئيلة ومستعدة للحقل.",
-    linkedinUrl: "https://linkedin.com", sortOrder: 1 },
-];
 
-const TESTIMONIALS = [
-  { quoteEn: "Our water consumption dropped by 40% in the first season. The system practically runs itself.",
-    // NOTE: the source Arabic string reads "بنبة 40٪", which looks like a typo for "بنسبة" (by 40%).
-    // Corrected here; flagging it rather than silently changing customer-facing copy.
-    quoteAr: "انخفض استهلاكنا للمياه بنسبة 40٪ في الموسم الأول. النظام يعمل تقريباً وحده.",
-    authorName: "Karim B.", farmEn: "Olive Farm, Tizi Ouzou", farmAr: "مزرعة زيتون، تيزي وزو", sortOrder: 0 },
-  { quoteEn: "Finally, a solution built for Algerian farms. Setup was simple and support is excellent.",
-    quoteAr: "أخيراً، حلٌّ مصمّم للمزارع الجزائرية. الإعداد بسيط والدعم ممتاز.",
-    authorName: "Amira T.", farmEn: "Citrus Grove, Blida", farmAr: "بستان حمضيات، البليدة", sortOrder: 1 },
-];
 
 // ── demo farm diagnostics ────────────────────────────────────────────────────
 const SYSTEM_COMPONENTS = [
@@ -258,7 +237,9 @@ async function main(): Promise<void> {
   });
   await prisma.stat.createMany({ data: STATS });
   await prisma.teamMember.createMany({ data: TEAM });
-  await prisma.testimonial.createMany({ data: TESTIMONIALS });
+  if (TESTIMONIALS.length > 0) {
+    await prisma.testimonial.createMany({ data: TESTIMONIALS });
+  }
   console.log(
     `  content: ${SERVICE_PLANS.length} plans, ${PRODUCTS.length} products, ${BLOG_POSTS.length} posts, ` +
       `${STATS.length} stats, ${TEAM.length} team, ${TESTIMONIALS.length} testimonials`,

@@ -6,6 +6,7 @@ cd "$root"
 test -f server/dist/index.js
 test -f server/dist/seed-super-admin.js
 test -f server/dist/seed-content.js
+test -f server/dist/seed-landing-content.js
 test -f client/dist/index.html
 mkdir -p dist
 staging=$(mktemp -d "$root/dist/.azure-package.XXXXXX")

@@ -112,30 +112,32 @@ export function Home() {
       </section>
 
       {/* Testimonials — served content, both languages, so toggling locale needs no refetch */}
-      <section className="w-full max-w-[960px] mx-auto px-6 pb-20">
-        {content.isError && (
-          <p className="text-[13px] text-center text-[#FF6B35]">
-            {content.error instanceof Error ? content.error.message : "Could not load testimonials."}
-          </p>
-        )}
-        <div className="grid md:grid-cols-2 gap-8">
-          {testimonials.map((item) => (
-            <div key={item.id} className="border border-[#EAECF0] rounded-lg p-6">
-              <p
-                className="text-[16px] md:text-[18px] text-[#4A4A4A]"
-                style={{ fontFamily: font, fontWeight: 400, lineHeight: 1.6 }}
-              >
-                &ldquo;{L(item.quote)}&rdquo;
-              </p>
-              <div className="mt-4 flex items-center gap-2">
-                <span className="text-[12px] text-[#9CA3AF]" style={{ fontFamily: "JetBrains Mono" }}>
-                  {item.authorName} — {L(item.farm)}
-                </span>
+      {(testimonials.length > 0 || content.isError) && (
+        <section className="w-full max-w-[960px] mx-auto px-6 pb-20">
+          {content.isError && (
+            <p className="text-[13px] text-center text-[#FF6B35]">
+              {content.error instanceof Error ? content.error.message : "Could not load testimonials."}
+            </p>
+          )}
+          <div className="grid md:grid-cols-2 gap-8">
+            {testimonials.map((item) => (
+              <div key={item.id} className="border border-[#EAECF0] rounded-lg p-6">
+                <p
+                  className="text-[16px] md:text-[18px] text-[#4A4A4A]"
+                  style={{ fontFamily: font, fontWeight: 400, lineHeight: 1.6 }}
+                >
+                  &ldquo;{L(item.quote)}&rdquo;
+                </p>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-[12px] text-[#9CA3AF]" style={{ fontFamily: "JetBrains Mono" }}>
+                    {item.authorName} — {L(item.farm)}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* CTA */}
       <section className="w-full bg-[#FAFAFA] py-16 text-center">

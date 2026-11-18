@@ -17,6 +17,23 @@ Pre/post SELECT/count checks confirm every non-content table is unchanged, inclu
 credentials, farms, device readings, enquiries, appointments, or histories were imported.
 The original backup remains `/home/semico-data/semico.backup-20261118.db` (401408 bytes).
 
+**Phase D approved landing content:** the operator approved exactly two profiles and four
+target/status cards, and requested omission of all testimonials. The isolated
+`server/dist/seed-landing-content.js` ran once against the production database after all release
+gates passed (567 server tests, 339 client tests, typecheck, zero-warning lint, build, packaging,
+and clean production dependency audit). It writes only TeamMember, Testimonial, and Stat.
+Stable slugs are stored in the models' existing unique string IDs, so no schema migration was
+needed. Upserts refresh the approved fields; retired/unapproved landing rows are removed in
+the same transaction. All other table counts are unchanged, including the earlier 73
+public/reference rows and existing accounts, farms, bookings, tokens, and histories.
+
+Phase D backup: `/home/semico-data/semico.backup-landing-20261118T204734Z.db`.
+Khelifa Montasar is Founder & CEO; Benrakaa Nasser is Supervising Professor — Materials Science,
+USTHB. Their English and Arabic biographies match the approved text verbatim. Initials remain
+the only profile placeholders; no photos, personal phone/email details, or invented profile
+links are published. Percentage cards are explicitly labelled design targets, not measured
+field results. The USTHB-TECHINNOV card records the operator-approved incubation status.
+
 All URLs below are relative to <https://semico-khelifa.azurewebsites.net>.
 
 | Feature | Final status | Live evidence / URL |
@@ -27,7 +44,9 @@ All URLs below are relative to <https://semico-khelifa.azurewebsites.net>.
 | Blog and filters | WORKING | `/blog` renders 4 articles; Guides/Technology each show 2; all 4 blog-record endpoints return 200 |
 | Arabic/RTL | WORKING | Browser switches pricing and blog titles to Arabic and sets `lang=ar`, `dir=rtl` |
 | Home/about base content | WORKING | `/` and `/about` render; ROI slider updates modelled savings; booking availability loads |
-| Team/testimonials/marketing metrics | EMPTY-DATA, withheld | Public collections return 200 with 0 rows; personal-looking/unverified copy was not approved |
+| TeamMember | WORKING (2) | `/api/v1/content/team` 200; `/about` renders both approved roles and verbatim English/Arabic bios; initials only |
+| Testimonial | OMITTED-BY-OPERATOR | `/api/v1/content/testimonials` 200, empty array; former endorsements absent; home hides the empty section cleanly |
+| Stat | WORKING — verified targets (4) | `/api/v1/content/stats` 200; `/about` shows 50%, +30%, 60% as design targets and approved USTHB-TECHINNOV incubation; exact Arabic labels |
 | Wilaya reference data | WORKING | `/api/v1/reference/wilayas` 200, 58 rows; source labels/coverage preserved |
 | Login form and anonymous guards | WORKING | `/login` renders; invalid login/register return 400; guarded APIs return 401 |
 | Positive admin login/CMS/oversight | BLOCKED: credentials | Admin account exists and pricing/blog rows are present; password absent from app settings and private environment |
@@ -50,13 +69,20 @@ broken images. All 12 concrete admin/farm destinations correctly redirect anonym
 to login. All 84 feature API signatures were reprobed after seeding; expected 200/400/401/resource
 404 results are intact. CMS ID parameters accept the deterministic content IDs.
 
+Phase D browser checks also verify `/`, `/about`, and `/blog` in English and Arabic. About is
+checked at desktop and 390px mobile widths with no horizontal overflow, broken images, or
+uncaught browser exceptions. Arabic sets `lang=ar` and `dir=rtl`; percentage tokens retain their
+LTR order. Target qualification is visible in both languages, and the four existing blog
+summaries remain unchanged. “Verified targets” means verified approved text and rendering,
+not measured agricultural performance.
+
 ### Remaining operator decisions
 
 - Provide existing administrator and farm-member credentials securely for positive login,
   authenticated dashboard/CMS reads, and a successful WSS 101 test. Do not paste credentials
   into public logs/chat, reset passwords, enable bootstrap, or create demo accounts to bypass this.
-- Approve or replace public team profiles, attributed testimonials, and marketing statistics
-  before publishing them. They remain excluded, not silently anonymized or fabricated.
+- Phase D team/target decisions are complete. Testimonials are intentionally omitted; do not
+  restore former placeholder endorsements or unsupported operating metrics.
 - Supply full article bodies if article-detail reading is desired; the local project only
   supplies the four titles/excerpts. Review copied pricing/trial copy and the modelled ROI formula
   against actual business offers; none is derived from real farm telemetry.
@@ -127,8 +153,11 @@ project content, not inferred from private records. The local PricingPlan table 
 copying it alone would not restore the services page. Wilaya Arabic labels preserve the source
 dataset's Latin-script names rather than inventing translations.
 
-Excluded pending explicit public-content approval: named team profiles, attributed testimonials,
-and unverified marketing metrics (system count, water savings, service coverage, uptime).
+The initial rollout withheld named profiles, attributed testimonials, and unverified operating
+metrics. Phase D supersedes that content hold: publish only the approved two profiles, three
+percentage design targets, and incubation status. Former testimonials and operating metrics
+remain omitted. The development seed's landing constants now reference the same approved data;
+the development seed itself is still forbidden on production and was not executed.
 Never import development users, passwords, refresh tokens, profiles, farms, sensor readings,
 bookings, leads, audit/activity history, or dated sample booking blocks. The four articles contain
 titles/excerpts, not full bodies; real article copy requires the business owner.
@@ -186,7 +215,8 @@ create accounts. Tests verify idempotence and preservation against a disposable 
 - Render `/`, `/services`, `/products`, `/blog`, `/about`, and `/login` in a browser. Check real
   pricing/product/article text, category filtering, language switching, and broken-image count.
 - Public APIs must return 2 pricing plans, 3 service plans, 6 products, 4 blog summaries, and
-  58 wilayas after an empty-table import. Team/statistics/testimonials stay empty until approved.
+  58 wilayas after an empty-table import. After Phase D, team has 2 rows, statistics has 4 approved
+  target/status rows, and testimonials is empty by operator decision.
 - Inspect production counts with Node/Prisma SELECT/count queries only; verify existing user,
   farm, zone, booking, telemetry, and other non-content counts are unchanged.
 - Unknown `/api/v1/...` and `/assets/...` remain JSON 404. Guarded handlers remain 401 without

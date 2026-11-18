@@ -242,35 +242,54 @@ export function About() {
         </div>
 
         {/* ── Stats ────────────────────────────────────────────────────── */}
-        <div
-          className="rounded-xl mb-16 grid grid-cols-2 md:grid-cols-4"
-          style={{ border: `1px solid ${c.border}`, background: c.card }}
-        >
-          {stats.map((stat, idx) => (
-            <div
-              key={stat.id}
-              className={`flex flex-col items-center py-8 px-4 ${
-                idx < stats.length - 1 ? (isRTL ? "border-s" : "border-e") : ""
-              }`}
-              style={{ borderColor: c.border }}
+        {stats.length > 0 && (
+          <section aria-labelledby="design-targets-heading" className="mb-16">
+            <h2
+              id="design-targets-heading"
+              className="text-[20px] text-center mb-3"
+              style={{ fontFamily: font, fontWeight: 500, color: c.text }}
             >
-              <p
-                style={{
-                  fontFamily: "JetBrains Mono",
-                  fontSize: 28,
-                  fontWeight: 400,
-                  color: c.text,
-                  lineHeight: 1,
-                }}
-              >
-                {L(stat.value)}
-              </p>
-              <p className="mt-2 text-[12px]" style={{ fontFamily: font, color: c.muted }}>
-                {L(stat.label)}
-              </p>
+              {isRTL ? "أهداف التصميم والاحتضان" : "Design targets and incubation"}
+            </h2>
+            <p
+              className="text-[13px] text-center mb-6"
+              style={{ fontFamily: font, color: c.sec }}
+            >
+              {isRTL
+                ? "النسب المعروضة أهداف تصميمية، وليست نتائج ميدانية مقاسة."
+                : "Percentage figures are design targets, not measured field results."}
+            </p>
+            <div
+              className="rounded-xl grid grid-cols-2 md:grid-cols-4"
+              style={{ border: `1px solid ${c.border}`, background: c.card }}
+            >
+              {stats.map((stat, index) => (
+                <div
+                  key={stat.id}
+                  className={`min-w-0 flex flex-col items-center text-center py-8 px-4 ${
+                    index < stats.length - 1 ? (isRTL ? "border-s" : "border-e") : ""
+                  }`}
+                  style={{ borderColor: c.border }}
+                >
+                  <p
+                    style={{
+                      fontFamily: "JetBrains Mono",
+                      fontSize: 28,
+                      fontWeight: 400,
+                      color: c.text,
+                      lineHeight: 1,
+                    }}
+                  >
+                    <bdi dir="ltr">{L(stat.value)}</bdi>
+                  </p>
+                  <p className="mt-2 text-[12px]" style={{ fontFamily: font, color: c.muted }}>
+                    {L(stat.label)}
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </section>
+        )}
 
         {/* ── Team section ─────────────────────────────────────────────── */}
         <div className="mb-16">

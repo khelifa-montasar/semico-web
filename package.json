@@ -25,6 +25,7 @@
     "db:migrate": "npm --workspace server run db:migrate",
     "db:seed": "npm --workspace server run db:seed",
     "db:seed:content": "npm --workspace server run db:seed:content --",
+    "db:seed:landing": "npm --workspace server run db:seed:landing --",
     "db:seed:admin": "npm --workspace server run db:seed:admin",
     "db:reset": "npm --workspace server run db:reset",
     "db:studio": "npm --workspace server run db:studio",

@@ -13,6 +13,7 @@ export default defineConfig({
     index: "src/index.ts",
     "seed-super-admin": "prisma/seed-super-admin.ts",
     "seed-content": "prisma/seed-content.ts",
+    "seed-landing-content": "prisma/seed-landing-content.ts",
   },
   outDir: "dist",
   format: ["esm"],
